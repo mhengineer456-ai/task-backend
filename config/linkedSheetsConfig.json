@@ -1,0 +1,151 @@
+{
+  "updatedAt": "2026-10-16T13:40:00.000Z",
+  "autoSyncIntervalMinutes": 20,
+  "readOnlyEnforced": true,
+  "sheets": [
+    {
+      "id": "job_orders",
+      "spreadsheetId": "1fKSwGBIpzWEFk566WRQ4bzQ0anJlmasoY8TwrTLQHXI",
+      "tabName": "JobOrder",
+      "displayName": "JobOrder Master",
+      "category": "Orders",
+      "keyColumn": "Lot Number",
+      "description": "Master factory production orders, fabrics, styles, quantities, and party allocations."
+    },
+    {
+      "id": "issues_tracker",
+      "spreadsheetId": "1uo14nKO_yHu4AJ2rOgaJajuprcinj6xw1AUMFJ6_zYM",
+      "tabName": "Issues",
+      "displayName": "Packing & Issue Tracker",
+      "category": "Production",
+      "keyColumn": "Lot Number",
+      "description": "Production stages, issue dates, challans, and packing clearance (Issues tab only)."
+    },
+    {
+      "id": "index_cutting",
+      "spreadsheetId": "1Hj3JeJEKB43aYYWv8gk2UhdU6BWuEQfCg5pBlTdBMNA",
+      "tabName": "Index",
+      "displayName": "Cutting Index (Authority)",
+      "category": "Cutting",
+      "keyColumn": "Lot Number",
+      "description": "Sole authority for cutting completion status (present = CUT COMPLETE, absent = CUTTING PENDING)."
+    },
+    {
+      "id": "cutting_karigar_details",
+      "spreadsheetId": "1Hj3JeJEKB43aYYWv8gk2UhdU6BWuEQfCg5pBlTdBMNA",
+      "tabName": "Cutting",
+      "displayName": "Cutting & Karigar Roll Details",
+      "category": "Cutting",
+      "keyColumn": "Lot Number",
+      "description": "Detailed roll-by-roll cutting, karigar allocation, and stitching records."
+    },
+    {
+      "id": "kaj_button",
+      "spreadsheetId": "1IMhmYlJ3s2PPRgEQs1Ikd4O1OBXK4EYL1oV_-kWAkyg",
+      "tabName": "KajButton",
+      "displayName": "KajButton Production Sheet",
+      "category": "Production",
+      "keyColumn": "Lot Number",
+      "description": "KajButton department logs, supervisor, date, and completed piece counts."
+    },
+    {
+      "id": "washing_sheet",
+      "spreadsheetId": "1IMhmYlJ3s2PPRgEQs1Ikd4O1OBXK4EYL1oV_-kWAkyg",
+      "tabName": "Washing",
+      "displayName": "Washing Production Sheet",
+      "category": "Finishing",
+      "keyColumn": "Lot Number",
+      "description": "Washing process records, washing supervisor, washing date, and total pcs."
+    },
+    {
+      "id": "overlock_sheet",
+      "spreadsheetId": "1IMhmYlJ3s2PPRgEQs1Ikd4O1OBXK4EYL1oV_-kWAkyg",
+      "tabName": "Overlock",
+      "displayName": "Overlock Production Sheet",
+      "category": "Stitching",
+      "keyColumn": "Lot Number",
+      "description": "Overlock stitching records, supervisor, issue date, and completion status."
+    },
+    {
+      "id": "folding_sheet",
+      "spreadsheetId": "1IMhmYlJ3s2PPRgEQs1Ikd4O1OBXK4EYL1oV_-kWAkyg",
+      "tabName": "Folding",
+      "displayName": "Folding Production Sheet",
+      "category": "Finishing",
+      "keyColumn": "Lot Number",
+      "description": "Folding unit records, folding supervisor, folding date, and total pcs."
+    },
+    {
+      "id": "elastic_sheet",
+      "spreadsheetId": "1IMhmYlJ3s2PPRgEQs1Ikd4O1OBXK4EYL1oV_-kWAkyg",
+      "tabName": "Elastic",
+      "displayName": "Elastic Stitching Sheet",
+      "category": "Stitching",
+      "keyColumn": "Lot Number",
+      "description": "Elastic attachment records, brand, supervisor, issue date, and pcs."
+    },
+    {
+      "id": "barcode_data",
+      "spreadsheetId": "1dOCjNFwaAel5qun0_ZJVIGmREqjI76CJBBFIjM3NHv8",
+      "tabName": "LotBarcodeData",
+      "displayName": "Barcode Tracking Data Sheet",
+      "category": "Tracking",
+      "keyColumn": "Lot Number",
+      "description": "Individual piece barcode tracking, barcode IDs, generation timestamps, and verification codes."
+    },
+    {
+      "id": "design_images",
+      "spreadsheetId": "1fKSwGBIpzWEFk566WRQ4bzQ0anJlmasoY8TwrTLQHXI",
+      "tabName": "DESIGN IMAGE",
+      "displayName": "Design & Artwork Images",
+      "category": "Design",
+      "keyColumn": "Lot Number",
+      "description": "Links to Google Drive high-resolution design and garment artwork images."
+    },
+    {
+      "id": "cancelled_lots",
+      "spreadsheetId": "1fKSwGBIpzWEFk566WRQ4bzQ0anJlmasoY8TwrTLQHXI",
+      "tabName": "Cancel",
+      "displayName": "Cancelled Lots Registry",
+      "category": "Audit",
+      "keyColumn": "Lot Number",
+      "description": "Audit trail of cancelled job orders with reason and authorization."
+    },
+    {
+      "id": "packing_orders",
+      "spreadsheetId": "1uo14nKO_yHu4AJ2rOgaJajuprcinj6xw1AUMFJ6_zYM",
+      "tabName": "PackingOrders",
+      "displayName": "Packing Orders Tracker",
+      "category": "Dispatch",
+      "keyColumn": "Lot Number",
+      "description": "Finished goods packing orders and dispatch staging."
+    },
+    {
+      "id": "lot_logs",
+      "spreadsheetId": "1dnukAAjyZy-W6oiRvT-6rcyTE5Rlu3u4GJqVXyN382I",
+      "tabName": "LotLogs",
+      "displayName": "Factory Activity & Stage Logs",
+      "category": "Logs",
+      "keyColumn": "Lot Number",
+      "description": "Real-time lot status transitions, stage updates, and timestamped activity logs."
+    },
+    {
+      "id": "zip_purchase_orders",
+      "spreadsheetId": "16miFNw0WMllnZ1XRHtsuH_8kVUM_6Y1O3uVsoM-Hjppo",
+      "tabName": "ZipPurchaseOrders",
+      "displayName": "Zip Purchase Orders & Gate Entry",
+      "category": "Materials",
+      "keyColumn": "Lot Number",
+      "description": "Zip procurement, supplier names, gate entry dates, material received persons, and approval IDs."
+    },
+    {
+      "id": "dori_purchase_orders",
+      "spreadsheetId": "1LjwZqU26I-OxwL1tTyps8bxSM1qS8LLUuL-sy_4COK6k",
+      "tabName": "DoriPurchaseOrders",
+      "displayName": "Dori Purchase Orders",
+      "category": "Materials",
+      "keyColumn": "Lot Number",
+      "description": "Dori purchase orders, total pieces, issue dates, supervisors, styles, fabrics, and dori selections."
+    }
+  ]
+}

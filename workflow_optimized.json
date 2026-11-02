@@ -1,0 +1,961 @@
+[
+  {
+    "updatedAt": "2026-10-16T06:35:24.354Z",
+    "createdAt": "2026-09-23T07:21:47.889Z",
+    "id": "nUjo2ktj7czCLu9E",
+    "name": "Factory Suite Pro - Complete Multi-Sheet AI Workflow",
+    "description": null,
+    "active": true,
+    "isArchived": false,
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "factory-ai-agent",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "e175225d-10ed-4faa-a3f7-11cdccfc9bd0",
+        "name": "Webhook (Receive AI Query)",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -800,
+          -592
+        ],
+        "webhookId": "012d93d5-5d86-4a69-b547-dc36cb6333cc"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Prepare prompt & context for LLM\nconst body = $input.first().json.body || {};\nconst prompt = body.prompt || body.chatInput || body.query || \"\";\nconst context = body.context || {};\nconst history = body.history || [];\n\nconst activeStage = context.activeStage || \"All Stages\";\nconst totalLotsCount = context.totalLotsCount || 0;\nconst summaryKPIs = JSON.stringify(context.summaryKPIs || {});\nconst sampleLots = JSON.stringify((context.sampleLots || []).slice(0, 50));\n\nlet historyStr = \"\";\nif (Array.isArray(history) && history.length > 0) {\n  historyStr = \"\\n\\nPrior Conversation History:\\n\" + \n    history.slice(-6).map(h => `${h.role === 'user' ? 'User' : 'Assistant'}: ${h.content}`).join(\"\\n\");\n}\n\nconst systemInstruction = `You are \"Factory AI Copilot\", an expert production management, industrial engineering, and garment manufacturing assistant for Factory Suite Pro.\nConverse fluently in Hinglish, Hindi, or English matching the user's language.\n\nCurrent Factory Context Data:\n- Active Stage: ${activeStage}\n- Total Active Lots: ${totalLotsCount}\n- Summary KPIs: ${summaryKPIs}\n- Live Production Lots (Sample): ${sampleLots}${historyStr}\n\nGuidelines:\n1. If user asks about lot numbers, stages (Cutting, Embroidery, Printing, Stitching, Packing), delays, or bottlenecks, analyze sampleLots and KPIs and give exact figures.\n2. If user asks general textile/garment questions (GSM, shrinkage %, SAM/SMV, fabric consumption, quality DHU), answer with formulas and clear steps.\n3. Keep tone concise, helpful, and executive-ready.`;\n\nreturn [{\n  json: {\n    userPrompt: prompt,\n    systemInstruction: systemInstruction\n  }\n}];"
+        },
+        "id": "fba47fa4-4f36-475d-8411-a25ab63deeac",
+        "name": "Format Context & Prompt",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -544,
+          -592
+        ]
+      },
+      {
+        "parameters": {
+          "promptType": "define",
+          "text": "={{ $json.userPrompt }}",
+          "options": {
+            "systemMessage": "={{ $json.systemInstruction }}"
+          }
+        },
+        "id": "56c43852-b5ee-4e98-a0bc-0e53c5daf592",
+        "name": "AI Agent",
+        "type": "@n8n/n8n-nodes-langchain.agent",
+        "typeVersion": 1.7,
+        "position": [
+          -320,
+          -592
+        ]
+      },
+      {
+        "parameters": {
+          "modelName": "models/gemini-3.5-flash-lite",
+          "options": {}
+        },
+        "id": "00cc9cb0-a741-4609-b914-4bd7163db11b",
+        "name": "Google Gemini Chat Model",
+        "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+        "typeVersion": 1,
+        "position": [
+          -320,
+          -432
+        ],
+        "credentials": {
+          "googlePalmApi": {
+            "id": "15MLl0JG4VQ4vUrv",
+            "name": "Google Gemini(PaLM) Api account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={\n  \"success\": true,\n  \"answer\": {{ JSON.stringify($json.output) }},\n  \"source\": \"n8n_ai_workflow\"\n}",
+          "options": {}
+        },
+        "id": "ad653497-c233-4ada-afcd-4daadf617552",
+        "name": "Respond to Webhook",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          -16,
+          -592
+        ]
+      },
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "factory-ai-agents",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "fdcdf8ad-2426-4f36-801a-9182c04a7cdf",
+        "name": "Webhook (Incoming AI Query)",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -784,
+          -144
+        ],
+        "webhookId": "c34a72a1-f752-417a-800e-5902f70a75bd"
+      },
+      {
+        "parameters": {
+          "documentId": {
+            "__rl": true,
+            "value": "1fKSwGBIpzWEFk566WRQ4bzQ0anJlmasoY8TwrTLQHXI",
+            "mode": "id"
+          },
+          "sheetName": {
+            "__rl": true,
+            "value": "JobOrder",
+            "mode": "name"
+          },
+          "options": {}
+        },
+        "id": "6ea680b3-9216-4d4b-b4c3-fe75293d879b",
+        "name": "Fetch JobOrder Sheet",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4.5,
+        "position": [
+          -480,
+          -288
+        ],
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "lvaWKk4ZeIR45COl",
+            "name": "Google Sheets account 3"
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "documentId": {
+            "__rl": true,
+            "value": "1uo14nKO_yHu4AJ2rOgaJajuprcinj6xw1AUMFJ6_zYM",
+            "mode": "id"
+          },
+          "sheetName": {
+            "__rl": true,
+            "value": "Issues",
+            "mode": "name"
+          },
+          "options": {}
+        },
+        "id": "e6c3f63c-f825-4e83-8b01-c9802345316d",
+        "name": "Fetch Issues Sheet",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4.5,
+        "position": [
+          -480,
+          -112
+        ],
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "lvaWKk4ZeIR45COl",
+            "name": "Google Sheets account 3"
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "documentId": {
+            "__rl": true,
+            "value": "1dnukAAjyZy-W6oiRvT-6rcyTE5Rlu3u4GJqVXyN382I",
+            "mode": "id"
+          },
+          "sheetName": {
+            "__rl": true,
+            "value": "LotLogs",
+            "mode": "name"
+          },
+          "options": {}
+        },
+        "id": "9aa5fb89-489d-4295-ac2f-a3c0f2c5d6b7",
+        "name": "Fetch LotLogs Sheet",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4.5,
+        "position": [
+          -288,
+          -128
+        ],
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "lvaWKk4ZeIR45COl",
+            "name": "Google Sheets account 3"
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Master Multi-Sheet Data Aggregator & Industrial ERP Intelligence Engine\nlet webhookData = {};\ntry {\n  webhookData = $(\"Webhook (Incoming AI Query)\").first().json.body || {};\n} catch (e) {\n  try {\n    webhookData = $input.first().json.body || $input.first().json || {};\n  } catch (err) {\n    webhookData = {};\n  }\n}\nconst prompt = String(webhookData.prompt || webhookData.chatInput || webhookData.message || webhookData.query || \"\").trim();\nif (!prompt) {\n  return [{ json: { status: \"skipped\", message: \"No incoming AI query to process (background sync execution)\" } }];\n}\nconst payloadContext = webhookData.context || {};\nconst history = webhookData.history || [];\n\nlet jobOrderData = [];\nlet issuesData = [];\nlet lotLogsData = [];\nlet indexData = [];\nlet kajButtonData = [];\nlet washingData = [];\nlet overlockData = [];\nlet foldingData = [];\nlet elasticData = [];\nlet barcodeData = [];\nlet zipPurchaseData = [];\nlet doriPurchaseData = [];\n\ntry { jobOrderData = $(\"Fetch JobOrder Sheet\").all().map(item => item.json); } catch (e) {}\ntry { issuesData = $(\"Fetch Issues Sheet\").all().map(item => item.json); } catch (e) {}\ntry { lotLogsData = $(\"Fetch LotLogs Sheet\").all().map(item => item.json); } catch (e) {}\ntry { indexData = $(\"Fetch Index Sheet\").all().map(item => item.json); } catch (e) {}\ntry { kajButtonData = $(\"Fetch KajButton Sheet\").all().map(item => item.json); } catch (e) {}\ntry { washingData = $(\"Fetch Washing Sheet\").all().map(item => item.json); } catch (e) {}\ntry { overlockData = $(\"Fetch Overlock Sheet\").all().map(item => item.json); } catch (e) {}\ntry { foldingData = $(\"Fetch Folding Sheet\").all().map(item => item.json); } catch (e) {}\ntry { elasticData = $(\"Fetch Elastic Sheet\").all().map(item => item.json); } catch (e) {}\ntry { barcodeData = $(\"Fetch Barcode Data Sheet\").all().map(item => item.json); } catch (e) {}\ntry { zipPurchaseData = $(\"Fetch ZipPurchaseOrders Sheet\").all().map(item => item.json); } catch (e) {}\ntry { doriPurchaseData = $(\"Fetch DoriPurchaseOrders Sheet\").all().map(item => item.json); } catch (e) {}\nlet sqlMaterials = [];\nlet sqlLotAccessories = [];\ntry { sqlMaterials = $(\"SQL - Fetch Accessory Inventory\").all().map(item => item.json); } catch (e) {}\ntry { sqlLotAccessories = $(\"SQL - Fetch Lot Accessories (Zip & Dori)\").all().map(item => item.json); } catch (e) {}\n\nconst getLot = (r) => String(r[\"Lot Number\"] || r[\"LOT NUMBER\"] || r[\"Lot No\"] || r[\"LOT NO\"] || r[\"lotNo\"] || r[\"Lot\"] || \"\").trim();\n\n// 1. Detect if user is asking about a specific lot number (e.g. 67046, 11300, 61008)\nconst lotMatch = prompt.match(/\\b(\\d{3,7}|[a-zA-Z]{1,3}[-_]\\d{3,6})\\b/);\nconst targetLot = lotMatch ? lotMatch[1].trim() : null;\n\nlet specificLotDetails = null;\nif (targetLot) {\n  const matchedJO = jobOrderData.find(r => getLot(r) === targetLot || String(r[\"Order No.\"] || \"\").includes(targetLot));\n  const matchedIssue = issuesData.find(r => getLot(r) === targetLot);\n  const matchedIndex = indexData.filter(r => Object.values(r).some(v => String(v || \"\").includes(targetLot)));\n  const matchedLogs = lotLogsData.filter(r => String(r[\"Lot Number\"] || \"\").includes(targetLot));\n  const matchedKaj = kajButtonData.find(r => getLot(r) === targetLot);\n  const matchedWash = washingData.find(r => getLot(r) === targetLot);\n  const matchedOverlock = overlockData.find(r => getLot(r) === targetLot);\n  const matchedFolding = foldingData.find(r => getLot(r) === targetLot);\n  const matchedElastic = elasticData.find(r => getLot(r) === targetLot);\n  const matchedBarcodes = barcodeData.filter(r => getLot(r) === targetLot);\n  const matchedZip = zipPurchaseData.find(r => getLot(r) === targetLot);\n  const matchedDori = doriPurchaseData.find(r => getLot(r) === targetLot);\n\n  const formatDirectImageUrl = (rawUrl) => {\n    if (!rawUrl || typeof rawUrl !== 'string') return null;\n    const trimmed = rawUrl.trim();\n    if (!trimmed) return null;\n    const driveMatch = trimmed.match(/id=([a-zA-Z0-9_-]+)/) || trimmed.match(/\\/d\\/([a-zA-Z0-9_-]+)/);\n    if (driveMatch && driveMatch[1]) {\n      return `https://lh3.googleusercontent.com/d/${driveMatch[1]}`;\n    }\n    return trimmed;\n  };\n\n  const rawImg = (matchedJO && (matchedJO[\"Image URL\"] || matchedJO[\"UPLOAD IMAGE\"])) || (matchedIndex.length > 0 && (matchedIndex[0][\"Image Url\"] || matchedIndex[0][\"Image URL\"])) || null;\n  const directImg = formatDirectImageUrl(rawImg);\n\n  if (matchedJO || matchedIssue || matchedIndex.length > 0 || matchedKaj || matchedWash || matchedOverlock || matchedFolding || matchedElastic || matchedBarcodes.length > 0 || matchedZip || matchedDori) {\n    specificLotDetails = {\n      lotNumber: targetLot,\n      jobOrder: matchedJO || null,\n      issuesAndPacking: matchedIssue || null,\n      cuttingMaster: matchedIndex.length > 0 ? matchedIndex[0] : null,\n      designImageUrl: directImg,\n      kajButton: matchedKaj || null,\n      washing: matchedWash || null,\n      overlock: matchedOverlock || null,\n      folding: matchedFolding || null,\n      elastic: matchedElastic || null,\n      barcodes: matchedBarcodes || [],\n      zipPurchase: matchedZip || null,\n      doriPurchase: matchedDori || null,\n      activityLogs: matchedLogs\n    };\n  }\n}\n\n// 2. Detect Party / Buyer queries (e.g. \"SS Party\", \"SS lots\", \"lots of SS\")\nconst isSSQuery = /\\b(ss|ss\\s*party|party\\s*ss|ss\\s*pattern)\\b/i.test(prompt);\nlet partyMatches = null;\n\nif (isSSQuery) {\n  const ssRows = jobOrderData.filter(r => String(r['Party Name'] || '').trim().toUpperCase() === 'SS' || String(r['Pattern'] || '').toUpperCase().includes('SS'));\n  const allSSLots = ssRows.map(r => getLot(r)).filter(Boolean);\n  const uniqueSSLots = [...new Set(allSSLots)];\n\n  const cutLots = uniqueSSLots.filter(l => indexData.some(i => getLot(i) === l));\n  const cancelledLots = uniqueSSLots.filter(l => {\n    const row = ssRows.find(r => getLot(r) === l);\n    return row && (String(row['Status'] || '').toLowerCase().includes('cancel') || Boolean(row['Cancellation Reason']));\n  });\n  const pendingLots = uniqueSSLots.filter(l => !cutLots.includes(l) && !cancelledLots.includes(l));\n\n  partyMatches = {\n    partyName: 'SS',\n    totalCount: uniqueSSLots.length,\n    cutCount: cutLots.length,\n    cancelledCount: cancelledLots.length,\n    pendingCount: pendingLots.length,\n    allLots: uniqueSSLots,\n    sampleCut: cutLots.slice(0, 15),\n    samplePending: pendingLots.slice(0, 15)\n  };\n}\n\n// 3. Stage-wise query helpers\nconst lowerPrompt = prompt.toLowerCase();\nlet stageSearchSummary = null;\n\nif (lowerPrompt.includes('kaj') || lowerPrompt.includes('button')) {\n  stageSearchSummary = {\n    stage: 'KajButton Department',\n    totalRecords: kajButtonData.length,\n    sampleLots: kajButtonData.slice(0, 10).map(r => getLot(r)).filter(Boolean)\n  };\n} else if (lowerPrompt.includes('wash')) {\n  stageSearchSummary = {\n    stage: 'Washing Department',\n    totalRecords: washingData.length,\n    sampleLots: washingData.slice(0, 10).map(r => getLot(r)).filter(Boolean)\n  };\n} else if (lowerPrompt.includes('overlock')) {\n  stageSearchSummary = {\n    stage: 'Overlock Department',\n    totalRecords: overlockData.length,\n    sampleLots: overlockData.slice(0, 10).map(r => getLot(r)).filter(Boolean)\n  };\n} else if (lowerPrompt.includes('fold')) {\n  stageSearchSummary = {\n    stage: 'Folding Department',\n    totalRecords: foldingData.length,\n    sampleLots: foldingData.slice(0, 10).map(r => getLot(r)).filter(Boolean)\n  };\n} else if (lowerPrompt.includes('elastic')) {\n  stageSearchSummary = {\n    stage: 'Elastic Department',\n    totalRecords: elasticData.length,\n    sampleLots: elasticData.slice(0, 10).map(r => getLot(r)).filter(Boolean)\n  };\n} else if (lowerPrompt.includes('barcode')) {\n  stageSearchSummary = {\n    stage: 'Barcode & Packaging Department',\n    totalRecords: barcodeData.length,\n    sampleLots: barcodeData.slice(0, 10).map(r => getLot(r)).filter(Boolean)\n  };\n} else if (lowerPrompt.includes('zip') || lowerPrompt.includes('zipper')) {\n  stageSearchSummary = {\n    stage: 'Zip Purchase & Gate Entry Department',\n    totalRecords: zipPurchaseData.length,\n    sampleLots: zipPurchaseData.slice(0, 10).map(r => getLot(r)).filter(Boolean)\n  };\n} else if (lowerPrompt.includes('dori')) {\n  stageSearchSummary = {\n    stage: 'Dori Purchase Orders Department',\n    totalRecords: doriPurchaseData.length,\n    sampleLots: doriPurchaseData.slice(0, 10).map(r => getLot(r)).filter(Boolean)\n  };\n}\n\n// 4. Build summary of all lots across factory\nlet combinedLots = jobOrderData.map(r => ({\n  lotNo: getLot(r) || r[\"Job Order No\"] || \"N/A\",\n  party: r[\"Party Name\"] || r[\"PARTY\"] || r[\"Party\"] || \"Standard\",\n  item: r[\"Garment Type\"] || r[\"Style\"] || r[\"ITEM\"] || \"Garment\",\n  brand: r[\"Brand\"] || \"\",\n  fabric: r[\"Fabric\"] || \"\",\n  stage: r[\"Direct Stitching\"] === 'yes' ? 'Direct Stitching' : (r[\"Emb\"] ? 'Embroidery' : (r[\"Printing\"] ? 'Printing' : 'Cutting/WIP')),\n  qty: parseFloat(r[\"Challan Total Qty\"] || r[\"Quantity\"] || 0) || 0,\n  date: r[\"Date\"] || r[\"Challan Date\"] || \"\",\n  status: r[\"Status\"] || \"Active\"\n}));\n\nconst totalLotsCount = combinedLots.filter(l => l.lotNo !== \"N/A\").length;\nconst totalQty = combinedLots.reduce((sum, l) => sum + (parseFloat(l.qty) || 0), 0);\n\nlet historyStr = \"\";\nif (Array.isArray(history) && history.length > 0) {\n  historyStr = \"\\n\\nPrior Conversation History:\\n\" + history.slice(-6).map(h => `${h.role === \"user\" ? \"User\" : \"Assistant\"}: ${h.content}`).join(\"\\n\");\n}\n\nlet lotContextSection = \"\";\nif (specificLotDetails) {\n  const isImageRequested = /\\b(image|photo|pic|picture|artwork|design\\s*image|design\\s*artwork|design\\s*photo|design\\s*(?:dikhao|dena|chahiye|bhejo)|photo\\s*(?:dena|dikhao|bhejo|chahiye|de)|image\\s*(?:dena|dikhao|bhejo|chahiye|de)|pic\\s*(?:dena|dikhao|bhejo|chahiye)|tasveer|tasvir)\\b/i.test(prompt);\n  const isHistoryRequested = /\\b(history|timeline|stages|department|supervisor|audit\\s*trail|all\\s*details|complete\\s*details|full\\s*details|lifecycle|journey|kahan\\s*tak\\s*pahuncha|kya\\s*status|status\\s*batao|cutting\\s*status)\\b/i.test(prompt);\n  const isImageOnly = isImageRequested && !isHistoryRequested;\n\n  const isBrandRequested = /\\b(brand|brand\\s*name|marka)\\b/i.test(prompt);\n  const isFabricRequested = /\\b(fabric|kapda|cloth|material)\\b/i.test(prompt);\n  const isPartyRequested = /\\b(party|party\\s*name|buyer|client|customer)\\b/i.test(prompt) && !/\\b(all\\s*parties|party\\s*report)\\b/i.test(prompt);\n  const isStyleRequested = /\\b(style|garment|garment\\s*type|pattern|item)\\b/i.test(prompt);\n  const isQtyRequested = /\\b(quantity|qty|order\\s*qty|kitne\\s*pcs|kitna\\s*order|pieces?|sets?)\\b/i.test(prompt);\n  const isShadeSizeRequested = /\\b(shade|shades|color|colors|colour|size|sizes)\\b/i.test(prompt);\n  const isZipRequested = /\\b(zip|zipper|zip\\s*purchase|zip\\s*supplier|zip\\s*entry|zip\\s*status)\\b/i.test(prompt);\n  const isDoriRequested = /\\b(dori|dori\\s*purchase|dori\\s*order|dori\\s*status|dori\\s*selection|dori\\s*pieces?)\\b/i.test(prompt);\n\n  const isSpecificAttributeOnly = (\n    isBrandRequested ||\n    isFabricRequested ||\n    isPartyRequested ||\n    isStyleRequested ||\n    isQtyRequested ||\n    isShadeSizeRequested ||\n    isZipRequested ||\n    isDoriRequested\n  ) && !isHistoryRequested;\n\n  if (isImageOnly) {\n    lotContextSection = `\n=== VERIFIED PRODUCTION FLOOR DATA FOR LOT ${specificLotDetails.lotNumber} (PHOTO REQUEST) ===\nLot Number: ${specificLotDetails.lotNumber}\nParty Name: ${specificLotDetails.jobOrder ? (specificLotDetails.jobOrder[\"Party Name\"] || specificLotDetails.jobOrder[\"PARTY\"] || \"Mohit Hosiery\") : \"Mohit Hosiery\"}\nBrand: ${specificLotDetails.jobOrder ? (specificLotDetails.jobOrder[\"Brand\"] || \"Standard\") : \"Standard\"}\nGarment Type: ${specificLotDetails.jobOrder ? (specificLotDetails.jobOrder[\"Garment Type\"] || specificLotDetails.jobOrder[\"ITEM\"] || \"Garment\") : \"Garment\"}\nStyle: ${specificLotDetails.jobOrder ? (specificLotDetails.jobOrder[\"Style\"] || \"Standard\") : \"Standard\"}\nFabric: ${specificLotDetails.jobOrder ? (specificLotDetails.jobOrder[\"Fabric\"] || \"Fabric\") : \"Fabric\"}\nDesign Artwork Image: ${specificLotDetails.designImageUrl || \"Not attached\"}\n=============================================================\nCRITICAL DIRECTIVE - USER ASKED ONLY FOR PHOTO / IMAGE:\nThe user explicitly asked ONLY for the photo / design artwork of Lot ${specificLotDetails.lotNumber} (Prompt: \"${prompt}\").\nDO NOT provide the complete department-by-department timeline, supervisor table, or multi-stage lifecycle audit trail. The user explicitly does not want the lengthy department lifecycle breakdown for photo requests.\n\nRESPONSE REQUIREMENTS:\n1. Warm 1-sentence opening presenting the requested design artwork / photo for Lot ${specificLotDetails.lotNumber}.\n2. CRITICAL: Embed the image directly using markdown: ![Design Artwork](${specificLotDetails.designImageUrl})\n   (NEVER output links like \"[View Image]\" or \"download link\". Always embed directly with markdown ![] syntax).\n3. Provide ONLY a compact 3-bullet style summary:\n   - Lot: ${specificLotDetails.lotNumber}\n   - Party: ${specificLotDetails.jobOrder ? (specificLotDetails.jobOrder[\"Party Name\"] || \"Standard\") : \"Standard\"}\n   - Garment & Style: ${specificLotDetails.jobOrder ? (specificLotDetails.jobOrder[\"Garment Type\"] || \"Garment\") : \"Garment\"} (${specificLotDetails.jobOrder ? (specificLotDetails.jobOrder[\"Style\"] || \"Standard\") : \"Standard\"}) | Fabric: ${specificLotDetails.jobOrder ? (specificLotDetails.jobOrder[\"Fabric\"] || \"Fabric\") : \"Fabric\"}\n4. Short closing offering to provide full department timeline or cutting status if needed.\n5. STRICTLY FORBIDDEN: Do NOT list all departments or full timeline. Do NOT mention Google Sheets or fetching mechanisms.\n`;\n  } else if (isSpecificAttributeOnly) {\n    const jo = specificLotDetails.jobOrder || {};\n    let targetAttr = 'Brand';\n    let targetVal = jo[\"Brand\"] || \"Standard\";\n    if (isBrandRequested) {\n      targetAttr = 'Brand';\n      targetVal = jo[\"Brand\"] || \"Standard\";\n    } else if (isFabricRequested) {\n      targetAttr = 'Fabric';\n      targetVal = jo[\"Fabric\"] || \"Standard Fabric\";\n    } else if (isPartyRequested) {\n      targetAttr = 'Party Name';\n      targetVal = jo[\"Party Name\"] || jo[\"PARTY\"] || \"Standard\";\n    } else if (isQtyRequested) {\n      targetAttr = 'Order Quantity';\n      targetVal = `${jo[\"Quantity\"] || jo[\"Challan Total Qty\"] || \"0\"} ${jo[\"Unit\"] || \"PCS\"}`;\n    } else if (isStyleRequested) {\n      targetAttr = 'Garment & Style';\n      targetVal = `${jo[\"Garment Type\"] || \"Garment\"} (${jo[\"Style\"] || \"Standard\"})`;\n    } else if (isShadeSizeRequested) {\n      targetAttr = 'Shades & Sizes';\n      targetVal = `Shades: ${jo[\"Shade\"] || \"Standard\"} | Sizes: ${jo[\"Size\"] || \"Standard\"}`;\n    } else if (isZipRequested) {\n      targetAttr = 'Zip Purchase & Gate Entry';\n      const zp = specificLotDetails.zipPurchase;\n      targetVal = zp\n        ? `Supplier: ${zp[\"Supplier Name\"] || 'N/A'} | Gate Entry: ${zp[\"Gate Entry Date\"] || 'N/A'} (${zp[\"Gate Entry Person\"] || 'N/A'}) | Received: ${zp[\"Material Received Date\"] || 'N/A'} (${zp[\"Material Received By\"] || 'N/A'})`\n        : 'Zip Purchase record factory production records mein nahi mila (Pending).';\n    } else if (isDoriRequested) {\n      targetAttr = 'Dori Purchase Order';\n      const dp = specificLotDetails.doriPurchase;\n      targetVal = dp\n        ? `Total Pieces: ${dp[\"Total Pieces\"] || 'N/A'} | Fabric: ${dp[\"Fabric\"] || 'N/A'} | Issue Date: ${dp[\"Issue Date\"] || 'N/A'} | Supervisor: ${dp[\"Supervisor\"] || 'N/A'}`\n        : 'Dori Purchase Order record factory production records mein nahi mila (Pending).';\n    }\n\n    lotContextSection = `\n=== VERIFIED PRODUCTION FLOOR DATA FOR LOT ${specificLotDetails.lotNumber} (${targetAttr.toUpperCase()} REQUEST) ===\nLot Number: ${specificLotDetails.lotNumber}\nRequested Attribute (${targetAttr}): ${targetVal}\nParty Name: ${jo[\"Party Name\"] || jo[\"PARTY\"] || \"Mohit Hosiery\"}\nBrand: ${jo[\"Brand\"] || \"Standard\"}\nGarment Type: ${jo[\"Garment Type\"] || \"Garment\"}\nStyle: ${jo[\"Style\"] || \"Standard\"}\nFabric: ${jo[\"Fabric\"] || \"Fabric\"}\nOrder Qty: ${jo[\"Quantity\"] || jo[\"Challan Total Qty\"] || \"0\"} ${jo[\"Unit\"] || \"PCS\"}\n=============================================================\nCRITICAL DIRECTIVE - USER ASKED ONLY FOR ${targetAttr.toUpperCase()}:\nThe user asked ONLY for the ${targetAttr} of Lot ${specificLotDetails.lotNumber} (Prompt: \"${prompt}\").\nDO NOT provide the department-by-department timeline, supervisor table, or multi-stage lifecycle audit trail. The user strictly wants ONLY the answer to their specific question.\n\nRESPONSE REQUIREMENTS:\n1. Direct, clear opening sentence answering ONLY what the user asked: \"Lot ${specificLotDetails.lotNumber} ka ${targetAttr} **${targetVal}** hai.\"\n2. Provide ONLY a compact specification summary:\n   - Brand: ${jo[\"Brand\"] || \"Standard\"}\n   - Party: ${jo[\"Party Name\"] || \"Standard\"}\n   - Garment & Style: ${jo[\"Garment Type\"] || \"Garment\"} (${jo[\"Style\"] || \"Standard\"}) | Fabric: ${jo[\"Fabric\"] || \"Fabric\"}\n3. Friendly next-question recommendation:\n   \"💡 Agla Sawaal: Agar aap is lot ka complete department timeline ya tracking dekhna chahte hain, toh \\`${specificLotDetails.lotNumber} lot complete history\\` pooch sakte hain.\"\n4. STRICTLY FORBIDDEN:\n   - Do NOT list all departments or full timeline.\n   - Do NOT output tables or Department Audit Trail.\n   - Do NOT mention Google Sheets or fetching mechanisms.\n`;\n  } else {\n    lotContextSection = `\n=== VERIFIED PRODUCTION FLOOR DATA FOR LOT ${specificLotDetails.lotNumber} ===\nLot Number: ${specificLotDetails.lotNumber}\n1. Job Order Master: ${JSON.stringify(specificLotDetails.jobOrder, null, 2)}\n2. Cutting Department: ${JSON.stringify(specificLotDetails.cuttingMaster, null, 2)}\n3. Stitching Department (Issues & Index Data): ${JSON.stringify({\n  ...(specificLotDetails.issuesAndPacking || {}),\n  stitchingSupervisor: specificLotDetails.cuttingMaster?.Supervisor || specificLotDetails.issuesAndPacking?.[\"STITCHING SUPERVISOR\"] || null,\n  completedStatus: specificLotDetails.cuttingMaster?.[\"Completed Status\"] || null,\n  wipStatus: specificLotDetails.cuttingMaster?.[\"WIP Status\"] || null\n}, null, 2)}\n4. Kaj-Button Department: ${JSON.stringify(specificLotDetails.kajButton, null, 2)}\n5. Washing Department: ${JSON.stringify(specificLotDetails.washing, null, 2)}\n6. Overlock Department: ${JSON.stringify(specificLotDetails.overlock, null, 2)}\n7. Folding Department: ${JSON.stringify(specificLotDetails.folding, null, 2)}\n8. Elastic Department: ${JSON.stringify(specificLotDetails.elastic, null, 2)}\n9. Barcode & Packing: ${JSON.stringify(specificLotDetails.barcodes, null, 2)}\n10. Zip Purchase & Gate Entry: ${JSON.stringify(specificLotDetails.zipPurchase, null, 2)}\n11. Dori Purchase Order & Trims: ${JSON.stringify(specificLotDetails.doriPurchase, null, 2)}\n12. Production Change Logs: ${JSON.stringify(specificLotDetails.activityLogs, null, 2)}\n=============================================================\nCRITICAL INSTRUCTION FOR LOT HISTORY & TIMELINE:\nThe user wants to check the complete department-by-department history of this lot.\nPresent a structured, chronological lifecycle audit trail covering EVERY department:\n1. Job Order Master: Date, Party, Garment Type, Fabric, Order Qty, Direct Stitching ('yes'/'no').\n2. Cutting Department: Cut Date (CRITICAL FACTORY RULE: Cut Date is strictly the \"Saved At\" date from Index records formatted as YYYY-MM-DD. Do NOT use Date of Issue which is stitching date!), Cutting Supervisor (NO supervisor - output \"-\"), Cut Qty, Status.\n3. Stitching Department: Stitching Issue Date (from Date of Issue column), Stitching Supervisor, Status.\n   CRITICAL STITCHING COMPLETION RULE:\n   - Check \"Completed Status\" column from production records.\n   - If \"Completed Status\" is populated/filled: Stitching is COMPLETED (✓ STITCHING COMPLETED).\n   - If \"Completed Status\" is blank: Stitching is NOT COMPLETED (Status: ⏳ In Progress / Pending), and you MUST show the latest stitching remarks from \"WIP Status\" JSON.\n4. Kaj-Button Department: Date, KajButton Supervisor, Pcs, Status (WIP / Completed).\n5. Washing Department: Date, Washing Supervisor, Plant, Process, Pcs, Status.\n6. Overlock Department: Date, Overlock Supervisor, Pcs, Status.\n7. Folding Department: Date, Folding Supervisor, Pcs, Status.\n8. Elastic Department: Date, Elastic Supervisor, Pcs, Status.\n9. Packing & Barcode Department: Packing Supervisor, Packing Date, Barcode IDs, Total Packed, Quality Status.\n10. Zip Procurement & Gate Entry: Supplier Name, Gate Entry Person & Date, Material Received By & Date, Material Entry Date, Approval ID.\n11. Dori Purchase Order & Trims: Total Pieces, Garment Type, Style, Fabric, Issue Date, Supervisor, Dori Selections.\n12. Production Change Logs: Any changes, permissions, timestamps.\n\nCRITICAL PROFESSIONALISM DIRECTIVE:\n- NEVER say \"I am fetching data from sheets\", \"as per our Google Sheets\", \"connected sheets\", \"sheet data\", or \"read-only mode\".\n- NEVER output spreadsheet names like \"JobOrder Sheet\", \"Index Sheet\", \"Issues Sheet\", or tab names.\n- Always refer to data professionally as \"Production Records\", \"Factory Floor Logs\", \"Official Production History\", or \"Verified Factory Data\".\n- For EVERY process, state the specific supervisor and date. If a department is not applicable or pending, state that clearly as \"Pending / Not initiated on production floor\".\n\nCRITICAL IMAGE DISPLAY DIRECTIVE:\n- When a Design Artwork Image is present (${specificLotDetails.designImageUrl || 'none'}), embed the image directly into the response using markdown image syntax: ![Design Artwork](${specificLotDetails.designImageUrl}).\n- The user specifically requested to SHOW the image directly, NOT provide a download link or URL link.\n- NEVER output links like \"[View Artwork](...)\", \"[Download Image](...)\", or \"Click here to download\". Embed the image directly in markdown.\n`;\n  }\n} else if (partyMatches) {\n  lotContextSection = `\n=== VERIFIED PARTY PRODUCTION RECORDS: \"${partyMatches.partyName}\" ===\nTotal Registered Lots for ${partyMatches.partyName}: ${partyMatches.totalCount} lots\nCut Complete (Verified in Cutting Records): ${partyMatches.cutCount} lots\nPending Cutting: ${partyMatches.pendingCount} lots\nSample Cut Lots (15): ${partyMatches.sampleCut.join(', ')}\nSample Pending Lots (15): ${partyMatches.samplePending.join(', ')}\nAll ${partyMatches.totalCount} Lots List: ${partyMatches.allLots.join(', ')}\n================================================================================\nCRITICAL INSTRUCTION FOR ${partyMatches.partyName} LOTS QUERY:\nState the exact verified numbers:\n- Total Registered Lots: ${partyMatches.totalCount} lots.\n- Cut Complete: ${partyMatches.cutCount} lots have been cut.\n- Pending Cutting: ${partyMatches.pendingCount} lots are pending cutting.\nNever hallucinate or report only 4-5 lots!\n`;\n} else if (stageSearchSummary) {\n  lotContextSection = `\n=== DEPARTMENT INVENTORY DATA: \"${stageSearchSummary.stage.toUpperCase()}\" ===\nTotal Verified Lots in ${stageSearchSummary.stage}: ${stageSearchSummary.totalRecords} entries\nSample Lots in this Stage: ${stageSearchSummary.sampleLots.join(', ')}\n==============================================================================\n`;\n}\n\nconst systemInstruction = `You are \"Factory AI Copilot\", an executive-grade industrial engineering and multi-stage garment manufacturing AI assistant for Factory Suite Pro.\nYou converse fluently in Hinglish, Hindi, or English (matching the user's language).\n\nCRITICAL PROFESSIONALISM & TONE DIRECTIVE:\n- NEVER mention \"Google Sheets\", \"fetching data from sheets\", \"connected sheets\", \"read-only mode\", or spreadsheet names in any user response. It is strictly forbidden and unprofessional.\n- Speak with executive, industrial-grade ERP authority citing \"Verified Factory Production Records\", \"Factory Database\", or \"Production Floor Records\".\n\n${lotContextSection}\n\nVerified Operations Summary:\n- Master Factory Orders: ${jobOrderData.length} active lots\n- Cutting Department Authority Records: ${indexData.length} entries\n- Stitching & Packing Handover Records: ${issuesData.length} entries\n- Kaj-Button Stage Records: ${kajButtonData.length} entries\n- Washing & Finishing Records: ${washingData.length} entries\n- Overlock Finishing Records: ${overlockData.length} entries\n- Folding & Packaging Records: ${foldingData.length} entries\n- Elastic Attachment Records: ${elasticData.length} entries\n- Barcode Tracking Records: ${barcodeData.length} entries\n- Zip Purchase Orders & Gate Entry: ${zipPurchaseData.length} entries\n- Dori Purchase Orders: ${doriPurchaseData.length} entries\n- Production Activity Logs: ${lotLogsData.length} entries${historyStr}\n\nGuidelines:\n1. When asked about SS lots, state the exact 331 verified count and cut/pending breakdown.\n2. When asked about Kaj-Button, Washing, Overlock, Folding, Elastic, Barcode, Packing, Zip, or Dori status for any lot, report the exact supervisor, dates, piece quantities, and status from official factory production records.\n3. Keep tone respectful, industrial-grade, clear, and direct.`;\n\nreturn [{\n  json: {\n    userPrompt: prompt,\n    systemInstruction: systemInstruction,\n    kpis: { totalLotsCount, totalQty }\n  }\n}];\n"
+        },
+        "id": "76b865a6-5d14-44e9-b5de-5abacac135df",
+        "name": "Aggregator & Analytics Engine",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          48,
+          -144
+        ]
+      },
+      {
+        "parameters": {
+          "promptType": "define",
+          "text": "={{ $json.userPrompt }}",
+          "options": {
+            "systemMessage": "={{ $json.systemInstruction }}"
+          }
+        },
+        "id": "cd02a71a-ba1c-4d13-899e-a36605e6897f",
+        "name": "Factory AI Agent",
+        "type": "@n8n/n8n-nodes-langchain.agent",
+        "typeVersion": 1.7,
+        "position": [
+          224,
+          -144
+        ]
+      },
+      {
+        "parameters": {
+          "modelName": "models/gemini-3.5-flash-lite",
+          "options": {}
+        },
+        "id": "e313f983-c587-4c50-b702-4cf1edb496a2",
+        "name": "Google Gemini Chat Model1",
+        "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+        "typeVersion": 1,
+        "position": [
+          224,
+          64
+        ],
+        "credentials": {
+          "googlePalmApi": {
+            "id": "15MLl0JG4VQ4vUrv",
+            "name": "Google Gemini(PaLM) Api account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={\n  \"success\": true,\n  \"answer\": {{ JSON.stringify($json.output) }},\n  \"source\": \"n8n_optimized_local_cache\"\n}",
+          "options": {}
+        },
+        "id": "f16244b1-8794-4ab5-848a-142b9d10f250",
+        "name": "Respond to Webhook1",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          512,
+          -144
+        ]
+      },
+      {
+        "parameters": {
+          "documentId": {
+            "__rl": true,
+            "value": "1Hj3JeJEKB43aYYWv8gk2UhdU6BWuEQfCg5pBlTdBMNA",
+            "mode": "id"
+          },
+          "sheetName": {
+            "__rl": true,
+            "value": "Index",
+            "mode": "name"
+          },
+          "options": {}
+        },
+        "id": "c1f7a0b2-8419-4e73-9a02-indexsheet01",
+        "name": "Fetch Index Sheet",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4.5,
+        "position": [
+          -480,
+          80
+        ],
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "lvaWKk4ZeIR45COl",
+            "name": "Google Sheets account 3"
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "documentId": {
+            "__rl": true,
+            "value": "1IMhmYlJ3s2PPRgEQs1Ikd4O1OBXK4EYL1oV_-kWAkyg",
+            "mode": "id"
+          },
+          "sheetName": {
+            "__rl": true,
+            "value": "KajButton",
+            "mode": "name"
+          },
+          "options": {}
+        },
+        "id": "node-fetch-kajbutton-01",
+        "name": "Fetch KajButton Sheet",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4.5,
+        "position": [
+          -480,
+          240
+        ],
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "lvaWKk4ZeIR45COl",
+            "name": "Google Sheets account 3"
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "documentId": {
+            "__rl": true,
+            "value": "1IMhmYlJ3s2PPRgEQs1Ikd4O1OBXK4EYL1oV_-kWAkyg",
+            "mode": "id"
+          },
+          "sheetName": {
+            "__rl": true,
+            "value": "Washing",
+            "mode": "name"
+          },
+          "options": {}
+        },
+        "id": "node-fetch-washing-01",
+        "name": "Fetch Washing Sheet",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4.5,
+        "position": [
+          -480,
+          400
+        ],
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "lvaWKk4ZeIR45COl",
+            "name": "Google Sheets account 3"
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "documentId": {
+            "__rl": true,
+            "value": "1IMhmYlJ3s2PPRgEQs1Ikd4O1OBXK4EYL1oV_-kWAkyg",
+            "mode": "id"
+          },
+          "sheetName": {
+            "__rl": true,
+            "value": "Overlock",
+            "mode": "name"
+          },
+          "options": {}
+        },
+        "id": "node-fetch-overlock-01",
+        "name": "Fetch Overlock Sheet",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4.5,
+        "position": [
+          -280,
+          240
+        ],
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "lvaWKk4ZeIR45COl",
+            "name": "Google Sheets account 3"
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "documentId": {
+            "__rl": true,
+            "value": "1IMhmYlJ3s2PPRgEQs1Ikd4O1OBXK4EYL1oV_-kWAkyg",
+            "mode": "id"
+          },
+          "sheetName": {
+            "__rl": true,
+            "value": "Folding",
+            "mode": "name"
+          },
+          "options": {}
+        },
+        "id": "node-fetch-folding-01",
+        "name": "Fetch Folding Sheet",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4.5,
+        "position": [
+          -280,
+          400
+        ],
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "lvaWKk4ZeIR45COl",
+            "name": "Google Sheets account 3"
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "documentId": {
+            "__rl": true,
+            "value": "1IMhmYlJ3s2PPRgEQs1Ikd4O1OBXK4EYL1oV_-kWAkyg",
+            "mode": "id"
+          },
+          "sheetName": {
+            "__rl": true,
+            "value": "Elastic",
+            "mode": "name"
+          },
+          "options": {}
+        },
+        "id": "node-fetch-elastic-01",
+        "name": "Fetch Elastic Sheet",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4.5,
+        "position": [
+          -480,
+          560
+        ],
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "lvaWKk4ZeIR45COl",
+            "name": "Google Sheets account 3"
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "documentId": {
+            "__rl": true,
+            "value": "1dOCjNFwaAel5qun0_ZJVIGmREqjI76CJBBFIjM3NHv8",
+            "mode": "id"
+          },
+          "sheetName": {
+            "__rl": true,
+            "value": "LotBarcodeData",
+            "mode": "name"
+          },
+          "options": {}
+        },
+        "id": "node-fetch-barcode-01",
+        "name": "Fetch Barcode Data Sheet",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4.5,
+        "position": [
+          -280,
+          560
+        ],
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "lvaWKk4ZeIR45COl",
+            "name": "Google Sheets account 3"
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "documentId": {
+            "__rl": true,
+            "value": "16miFNw0WMllnZ1XRHtsuH_8kVUM_6Y1O3uVsoM-Hjppo",
+            "mode": "id"
+          },
+          "sheetName": {
+            "__rl": true,
+            "value": "ZipPurchaseOrders",
+            "mode": "name"
+          },
+          "options": {}
+        },
+        "id": "node-fetch-zippurchase-01",
+        "name": "Fetch ZipPurchaseOrders Sheet",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4.5,
+        "position": [
+          -480,
+          720
+        ],
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "lvaWKk4ZeIR45COl",
+            "name": "Google Sheets account 3"
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "documentId": {
+            "__rl": true,
+            "value": "1LjwZqU26I-OxwL1tTyps8bxSM1qS8LLUuL-sy_4COK6k",
+            "mode": "id"
+          },
+          "sheetName": {
+            "__rl": true,
+            "value": "DoriPurchaseOrders",
+            "mode": "name"
+          },
+          "options": {}
+        },
+        "id": "node-fetch-doripurchase-01",
+        "name": "Fetch DoriPurchaseOrders Sheet",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4.5,
+        "position": [
+          -280,
+          720
+        ],
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "lvaWKk4ZeIR45COl",
+            "name": "Google Sheets account 3"
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "http://host.docker.internal:5000/api/chat/ai-context",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify($json.body) }}",
+          "options": {}
+        },
+        "id": "node-fast-ai-context-cache",
+        "name": "Fetch Pre-Aggregated Context (Local Cache)",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          -420,
+          -144
+        ]
+      },
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "minutes",
+                "minutesInterval": 20
+              }
+            ]
+          }
+        },
+        "id": "node-schedule-sync-trigger",
+        "name": "Scheduled Background Sync (Every 20 Min)",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          -420,
+          260
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "http://host.docker.internal:5000/api/sheets/sync",
+          "options": {}
+        },
+        "id": "node-trigger-backend-sheet-sync",
+        "name": "Trigger Backend Sheet Ingestion",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          -160,
+          260
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT id, name, category, stock, unit, cost, threshold, color, packets, poNumber, invoiceNo, location FROM materials ORDER BY category ASC, stock DESC;"
+        },
+        "id": "node-mysql-accessory-inventory",
+        "name": "SQL - Fetch Accessory Inventory",
+        "type": "n8n-nodes-base.mySql",
+        "typeVersion": 2.5,
+        "position": [
+          120,
+          260
+        ],
+        "credentials": {
+          "mySql": {
+            "id": "mysql-accessory-db",
+            "name": "MySQL - NewData Accessory DB"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT z.Lot_Number, z.Garment_Type, z.Style, z.Total_Pieces, z.Zip_Selections, z.Zip_Quality_Data, z.Supplier_Name AS zip_supplier, z.po_number AS zip_po, d.Dori_Selections, d.Total_Pieces AS dori_pieces, d.Supplier_Name AS dori_supplier, d.po_number AS dori_po FROM zip z LEFT JOIN doori d ON z.Lot_Number = d.Lot_Number ORDER BY z.id DESC;"
+        },
+        "id": "node-mysql-lot-accessories",
+        "name": "SQL - Fetch Lot Accessories (Zip & Dori)",
+        "type": "n8n-nodes-base.mySql",
+        "typeVersion": 2.5,
+        "position": [
+          380,
+          260
+        ],
+        "credentials": {
+          "mySql": {
+            "id": "mysql-accessory-db",
+            "name": "MySQL - NewData Accessory DB"
+          }
+        }
+      },
+      {
+        "parameters": {},
+        "id": "node-manual-test-trigger",
+        "name": "When clicking Execute Workflow",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [
+          -160,
+          440
+        ]
+      }
+    ],
+    "connections": {
+      "Webhook (Receive AI Query)": {
+        "main": [
+          [
+            {
+              "node": "Format Context & Prompt",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Format Context & Prompt": {
+        "main": [
+          [
+            {
+              "node": "AI Agent",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Google Gemini Chat Model": {
+        "ai_languageModel": [
+          [
+            {
+              "node": "AI Agent",
+              "type": "ai_languageModel",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "AI Agent": {
+        "main": [
+          [
+            {
+              "node": "Respond to Webhook",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Webhook (Incoming AI Query)": {
+        "main": [
+          [
+            {
+              "node": "Fetch Pre-Aggregated Context (Local Cache)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Aggregator & Analytics Engine": {
+        "main": [
+          [
+            {
+              "node": "Factory AI Agent",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Factory AI Agent": {
+        "main": [
+          [
+            {
+              "node": "Respond to Webhook1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Google Gemini Chat Model1": {
+        "ai_languageModel": [
+          [
+            {
+              "node": "Factory AI Agent",
+              "type": "ai_languageModel",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch JobOrder Sheet": {
+        "main": [
+          [
+            {
+              "node": "Fetch Issues Sheet",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch Issues Sheet": {
+        "main": [
+          [
+            {
+              "node": "Fetch LotLogs Sheet",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch LotLogs Sheet": {
+        "main": [
+          [
+            {
+              "node": "Fetch Index Sheet",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch Index Sheet": {
+        "main": [
+          [
+            {
+              "node": "Fetch KajButton Sheet",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch KajButton Sheet": {
+        "main": [
+          [
+            {
+              "node": "Fetch Washing Sheet",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch Washing Sheet": {
+        "main": [
+          [
+            {
+              "node": "Fetch Overlock Sheet",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch Overlock Sheet": {
+        "main": [
+          [
+            {
+              "node": "Fetch Folding Sheet",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch Folding Sheet": {
+        "main": [
+          [
+            {
+              "node": "Fetch Elastic Sheet",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch Elastic Sheet": {
+        "main": [
+          [
+            {
+              "node": "Fetch Barcode Data Sheet",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch Barcode Data Sheet": {
+        "main": [
+          [
+            {
+              "node": "Fetch ZipPurchaseOrders Sheet",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch ZipPurchaseOrders Sheet": {
+        "main": [
+          [
+            {
+              "node": "Fetch DoriPurchaseOrders Sheet",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch DoriPurchaseOrders Sheet": {
+        "main": [
+          [
+            {
+              "node": "SQL - Fetch Accessory Inventory",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch Pre-Aggregated Context (Local Cache)": {
+        "main": [
+          [
+            {
+              "node": "Factory AI Agent",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Scheduled Background Sync (Every 20 Min)": {
+        "main": [
+          [
+            {
+              "node": "Trigger Backend Sheet Ingestion",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "When clicking Execute Workflow": {
+        "main": [
+          [
+            {
+              "node": "Trigger Backend Sheet Ingestion",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "SQL - Fetch Accessory Inventory": {
+        "main": [
+          [
+            {
+              "node": "SQL - Fetch Lot Accessories (Zip & Dori)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "SQL - Fetch Lot Accessories (Zip & Dori)": {
+        "main": [
+          [
+            {
+              "node": "Aggregator & Analytics Engine",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "binaryMode": "separate",
+      "saveDataSuccessExecution": "all",
+      "saveExecutionProgress": true,
+      "saveManualExecutions": true
+    },
+    "staticData": null,
+    "meta": {
+      "templateCredsSetupCompleted": true
+    },
+    "nodeGroups": [],
+    "pinData": {},
+    "versionId": "dc602d8b-66ab-4204-a415-49893e0fc8d5",
+    "activeVersionId": "1c5f2998-0b35-49b2-b0a2-3a201f4e2ee3",
+    "versionCounter": 82,
+    "triggerCount": 2,
+    "sourceWorkflowId": null,
+    "tags": [],
+    "shared": [
+      {
+        "updatedAt": "2026-09-23T07:21:47.895Z",
+        "createdAt": "2026-09-23T07:21:47.895Z",
+        "role": "workflow:owner",
+        "workflowId": "nUjo2ktj7czCLu9E",
+        "projectId": "kcbygolFMsBzhR8t",
+        "project": {
+          "updatedAt": "2026-10-12T10:51:28.157Z",
+          "createdAt": "2026-09-21T06:12:54.881Z",
+          "id": "kcbygolFMsBzhR8t",
+          "name": "Paras Goyal <mhengineer456@gmail.com>",
+          "type": "personal",
+          "icon": null,
+          "description": null,
+          "customTelemetryTags": [],
+          "creatorId": "75aecce6-2b3f-4d45-a733-9c7738a8659d"
+        }
+      }
+    ],
+    "versionMetadata": {
+      "name": null,
+      "description": null
+    }
+  }
+]

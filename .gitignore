@@ -1,0 +1,36 @@
+# ==============================================================================
+# SECRETS, CREDENTIALS & SENSITIVE KEYS (CRITICAL: DO NOT COMMIT)
+# ==============================================================================
+.env
+.env.*
+*.env
+!.env.example
+
+# Google OAuth & Database Credential JSONs
+*googleSheetsOAuth.json
+*client_secret*.json
+service-account*.json
+*credentials*.json
+*credential*.json
+*token*.json
+n8n_mysql_credential.json
+!*.example.json
+
+# Private keys & certificates
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Dependencies & Build Outputs
+node_modules/
+dist/
+build/
+logs/
+*.log
+
+# OS & Editor Files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

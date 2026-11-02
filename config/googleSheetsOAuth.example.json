@@ -1,0 +1,6 @@
+{
+  "clientId": "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
+  "clientSecret": "YOUR_GOOGLE_CLIENT_SECRET",
+  "refreshToken": "YOUR_GOOGLE_REFRESH_TOKEN",
+  "accessToken": "YOUR_GOOGLE_ACCESS_TOKEN"
+}

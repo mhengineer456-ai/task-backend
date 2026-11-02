@@ -1,0 +1,24 @@
+{
+  "name": "taskpulse-backend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "init-db": "node init-db.js",
+    "clear-db": "node clear-db.js",
+    "seed": "node -e \"import('./config/seed.js').then(async m => { const { initDatabase } = await import('./config/db.js'); await initDatabase(); await m.seedDatabase(); process.exit(0); })\"",
+    "db:push-railway": "node scripts/push_db_to_railway.mjs"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^16.4.7",
+    "express": "^5.2.1",
+    "mysql2": "^3.12.0",
+    "pdfkit": "^0.20.2",
+    "sharp": "^0.35.5",
+    "socket.io": "^4.8.4"
+  }
+}
