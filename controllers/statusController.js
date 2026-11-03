@@ -92,16 +92,49 @@ export const getStatusFeed = async (req, res) => {
 
     // Group statuses by user for the WhatsApp/Instagram story carousel
     const userMap = new Map();
-    for (const status of authorizedStatuses) {
+    for (const rawStatus of authorizedStatuses) {
+      const status = {
+        ...rawStatus,
+        content: rawStatus.content || '',
+        text: rawStatus.content || '',
+        caption: rawStatus.type !== 'text' ? (rawStatus.content || '') : '',
+        mediaUrl: rawStatus.media_url || null,
+        media_url: rawStatus.media_url || null,
+        backgroundColor: rawStatus.background_color || '#007AFF',
+        background_color: rawStatus.background_color || '#007AFF',
+        textColor: rawStatus.text_color || '#FFFFFF',
+        text_color: rawStatus.text_color || '#FFFFFF',
+        typographyStyle: rawStatus.font_style || 'sans',
+        fontStyle: rawStatus.font_style || 'sans',
+        font_style: rawStatus.font_style || 'sans',
+        createdAt: rawStatus.created_at,
+        created_at: rawStatus.created_at,
+        expiresAt: rawStatus.expires_at,
+        expires_at: rawStatus.expires_at,
+        viewCount: Number(rawStatus.views_count) || 0,
+        viewsCount: Number(rawStatus.views_count) || 0,
+        views_count: Number(rawStatus.views_count) || 0,
+        hasViewed: Boolean(rawStatus.has_viewed),
+        has_viewed: Boolean(rawStatus.has_viewed)
+      };
+
       const uid = String(status.user_id);
       if (!userMap.has(uid)) {
         userMap.set(uid, {
           userId: status.user_id,
           userName: status.user_name,
           userAvatar: status.user_avatar,
+          user: {
+            id: status.user_id,
+            name: status.user_name,
+            avatar: status.user_avatar
+          },
           statuses: [],
           lastUpdated: status.created_at,
-          hasUnviewed: false
+          latestAt: status.created_at,
+          hasUnviewed: false,
+          hasUnread: false,
+          unreadCount: 0
         });
       }
 
@@ -109,9 +142,12 @@ export const getStatusFeed = async (req, res) => {
       group.statuses.push(status);
       if (new Date(status.created_at) > new Date(group.lastUpdated)) {
         group.lastUpdated = status.created_at;
+        group.latestAt = status.created_at;
       }
       if (!status.has_viewed && String(status.user_id) !== String(userId)) {
         group.hasUnviewed = true;
+        group.hasUnread = true;
+        group.unreadCount = (group.unreadCount || 0) + 1;
       }
     }
 
@@ -127,7 +163,7 @@ export const getStatusFeed = async (req, res) => {
       if (uid === String(userId)) {
         myStatusGroup = group;
       } else {
-        if (group.hasUnviewed) {
+        if (group.hasUnviewed || group.hasUnread) {
           recentUpdates.push(group);
         } else {
           viewedUpdates.push(group);
@@ -201,7 +237,18 @@ export const createStatus = async (req, res) => {
       expires_at: expiresAt,
       is_deleted: false,
       views_count: 0,
-      has_viewed: false
+      has_viewed: false,
+      text: content.trim(),
+      caption: type !== 'text' ? content.trim() : '',
+      mediaUrl: mediaUrl,
+      backgroundColor: backgroundColor,
+      textColor: textColor,
+      fontStyle: fontStyle,
+      typographyStyle: fontStyle,
+      createdAt: createdAt,
+      expiresAt: expiresAt,
+      viewCount: 0,
+      viewsCount: 0
     };
 
     if (isConnected()) {
