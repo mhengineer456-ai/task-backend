@@ -277,7 +277,28 @@ async function runAutoMigrations(dbPool) {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
     `).catch(() => {});
 
-    console.log("✅ [MySQL Database] Schema auto-migrations, statuses, and chat partitions verified.");
+    // --- Call Logs & History Table Creation ---
+    await dbPool.query(`
+      CREATE TABLE IF NOT EXISTS call_logs (
+        id VARCHAR(64) PRIMARY KEY,
+        caller_id VARCHAR(64) NOT NULL,
+        caller_name VARCHAR(128) NOT NULL,
+        caller_avatar TEXT,
+        receiver_id VARCHAR(64) NOT NULL,
+        receiver_name VARCHAR(128) NOT NULL,
+        receiver_avatar TEXT,
+        call_type VARCHAR(32) NOT NULL DEFAULT 'voice',
+        status VARCHAR(32) NOT NULL DEFAULT 'completed',
+        duration_seconds INT DEFAULT 0,
+        channel_id VARCHAR(64) DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_call_caller (caller_id, created_at DESC),
+        INDEX idx_call_receiver (receiver_id, created_at DESC),
+        INDEX idx_call_channel (channel_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+    `).catch(() => {});
+
+    console.log("✅ [MySQL Database] Schema auto-migrations, statuses, calls, and chat partitions verified.");
   } catch (migErr) {
     console.warn("⚠️ [MySQL Database] Auto-migration warning:", migErr.message);
   }

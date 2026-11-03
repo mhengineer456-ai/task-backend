@@ -1,8 +1,48 @@
 import { query, isConnected } from '../config/db.js';
 import { broadcastStatusCreated, broadcastStatusViewed, broadcastStatusDeleted, broadcastChatMessage } from '../socket.js';
 
+// Helper to generate sample contact statuses for Sarah Jenkins and David Chen
+const getDefaultSampleStatuses = () => [
+  {
+    id: 'stat-sample-sarah',
+    user_id: 'usr-2',
+    user_name: 'Sarah Jenkins',
+    user_avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
+    type: 'text',
+    content: '🚀 Sprint 42 deployed cleanly across all cloud regions! Great work everyone.',
+    media_url: null,
+    background_color: 'linear-gradient(135deg, #007AFF 0%, #5856D6 100%)',
+    text_color: '#FFFFFF',
+    font_style: 'sans',
+    privacy_type: 'contacts',
+    privacy_users: [],
+    created_at: new Date(Date.now() - 3600000 * 2).toISOString().slice(0, 19).replace('T', ' '),
+    expires_at: new Date(Date.now() + 3600000 * 22).toISOString().slice(0, 19).replace('T', ' '),
+    is_deleted: false,
+    views_count: 3
+  },
+  {
+    id: 'stat-sample-david',
+    user_id: 'usr-3',
+    user_name: 'David Chen',
+    user_avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+    type: 'text',
+    content: '🎨 New Apple-inspired design system tokens and glassmorphic card layouts are live!',
+    media_url: null,
+    background_color: 'linear-gradient(135deg, #34C759 0%, #30B0C7 100%)',
+    text_color: '#FFFFFF',
+    font_style: 'handwriting',
+    privacy_type: 'contacts',
+    privacy_users: [],
+    created_at: new Date(Date.now() - 3600000 * 5).toISOString().slice(0, 19).replace('T', ' '),
+    expires_at: new Date(Date.now() + 3600000 * 19).toISOString().slice(0, 19).replace('T', ' '),
+    is_deleted: false,
+    views_count: 5
+  }
+];
+
 // Fallback in-memory storage for offline / local-fallback mode
-let fallbackStatuses = [];
+let fallbackStatuses = getDefaultSampleStatuses();
 let fallbackViews = []; // { id, status_id, viewer_id, viewer_name, viewer_avatar, viewed_at }
 let fallbackPrivacy = {}; // { [userId]: { privacyType, excludedUsers, allowedUsers } }
 
@@ -10,6 +50,9 @@ let fallbackPrivacy = {}; // { [userId]: { privacyType, excludedUsers, allowedUs
 const pruneExpiredStatuses = () => {
   const now = new Date();
   fallbackStatuses = fallbackStatuses.filter(s => !s.is_deleted && new Date(s.expires_at) > now);
+  if (fallbackStatuses.length === 0) {
+    fallbackStatuses = getDefaultSampleStatuses();
+  }
 };
 
 export const getStatusFeed = async (req, res) => {
@@ -592,6 +635,19 @@ export const replyToStatus = async (req, res) => {
     const messageId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
+    const statusReplyData = {
+      statusId: status.id,
+      statusType: status.type || 'text',
+      ownerId: targetUserId,
+      ownerName: status.user_name || 'Contact',
+      snippet: replySnippet,
+      mediaUrl: status.media_url || status.mediaUrl || null,
+      backgroundColor: status.background_color || status.backgroundColor || '#007AFF',
+      textColor: status.text_color || status.textColor || '#FFFFFF',
+      fontStyle: status.font_style || status.fontStyle || 'sans',
+      replyText: text
+    };
+
     const messageObj = {
       id: messageId,
       channelId: dmChannelId,
@@ -602,30 +658,71 @@ export const replyToStatus = async (req, res) => {
       messageType: 'status_reply',
       text: formattedMessageText,
       replyToStatusId: statusId,
+      statusReply: statusReplyData,
+      fileAttachment: { statusReply: statusReplyData },
       createdAt,
       timestamp: createdAt,
       status: 'sent'
     };
 
     if (isConnected()) {
-      // Ensure DM channel exists
+      // 1. Ensure DM channel exists and update last_message timestamp
       await query(`
         INSERT INTO chat_channels (id, name, type, participant_ids, is_private, last_message_id, last_message_at)
         VALUES (?, ?, 'direct', ?, 1, ?, ?)
         ON DUPLICATE KEY UPDATE 
           last_message_id = VALUES(last_message_id),
           last_message_at = VALUES(last_message_at)
-      `, [dmChannelId, `${senderName} & ${status.user_name}`, JSON.stringify(sorted), messageId, createdAt]);
+      `, [dmChannelId, `${senderName} & ${status.user_name}`, JSON.stringify(sorted), messageId, createdAt]).catch(() => {});
+
+      // 2. Ensure both participants are registered in chat_channel_members
+      const memberKeySender = `mem-${dmChannelId}-${senderId}`;
+      const memberKeyTarget = `mem-${dmChannelId}-${targetUserId}`;
 
       await query(`
-        INSERT INTO chat_messages (id, channel_id, sender_id, sender_name, sender_role, sender_avatar, message_type, text, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'status_reply', ?, ?)
-      `, [messageId, dmChannelId, senderId, senderName, senderRole || 'Team Member', senderAvatar || '', formattedMessageText, createdAt]);
+        INSERT INTO chat_channel_members (id, channel_id, user_id, role, unread_count, last_read_message_id, last_read_at)
+        VALUES (?, ?, ?, 'member', 0, ?, CURRENT_TIMESTAMP)
+        ON DUPLICATE KEY UPDATE unread_count = 0, last_read_message_id = ?, last_read_at = CURRENT_TIMESTAMP
+      `, [memberKeySender, dmChannelId, senderId, messageId, messageId]).catch(() => {});
+
+      await query(`
+        INSERT INTO chat_channel_members (id, channel_id, user_id, role, unread_count)
+        VALUES (?, ?, ?, 'member', 1)
+        ON DUPLICATE KEY UPDATE unread_count = unread_count + 1
+      `, [memberKeyTarget, dmChannelId, targetUserId]).catch(() => {});
+
+      // 3. Save message with status_reply type and rich attachment payload
+      await query(`
+        INSERT INTO chat_messages (
+          id, channel_id, sender_id, sender_name, sender_role, sender_avatar,
+          message_type, text, file_attachment, reactions, is_ai, status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 'status_reply', ?, ?, '{}', 0, 'sent', ?)
+      `, [
+        messageId,
+        dmChannelId,
+        senderId,
+        senderName,
+        senderRole || 'Team Member',
+        senderAvatar || '',
+        formattedMessageText,
+        JSON.stringify({ statusReply: statusReplyData }),
+        createdAt
+      ]).catch(() => {});
     }
 
+    // Real-time broadcast to socket subscribers
     broadcastChatMessage(dmChannelId, messageObj);
 
-    return res.status(201).json({ success: true, message: messageObj, channelId: dmChannelId });
+    return res.status(201).json({
+      success: true,
+      message: messageObj,
+      channelId: dmChannelId,
+      targetUser: {
+        id: targetUserId,
+        name: status.user_name || 'Contact',
+        avatar: status.user_avatar || ''
+      }
+    });
   } catch (error) {
     console.error('Error replying to status:', error);
     return res.status(500).json({ success: false, error: 'Failed to send reply to status' });

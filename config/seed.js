@@ -801,6 +801,65 @@ export async function seedDatabase() {
       }
       console.log(`✅ [Seed] Seeded ${seedChatMessages.length} chat messages in MySQL.`);
     }
+
+    // 9. Check User Statuses - Seed if empty
+    try {
+      const [statusCount] = await query('SELECT COUNT(*) as count FROM user_statuses');
+      if (statusCount && statusCount.count === 0) {
+        const sampleStatuses = [
+          {
+            id: 'stat-sample-sarah',
+            user_id: 'usr-2',
+            user_name: 'Sarah Jenkins',
+            user_avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
+            type: 'text',
+            content: '🚀 Sprint 42 deployed cleanly across all cloud regions! Great work everyone.',
+            media_url: null,
+            background_color: 'linear-gradient(135deg, #007AFF 0%, #5856D6 100%)',
+            text_color: '#FFFFFF',
+            font_style: 'sans',
+            privacy_type: 'contacts',
+            privacy_users: '[]',
+            created_at: new Date(Date.now() - 3600000 * 2).toISOString().slice(0, 19).replace('T', ' '),
+            expires_at: new Date(Date.now() + 3600000 * 22).toISOString().slice(0, 19).replace('T', ' ')
+          },
+          {
+            id: 'stat-sample-david',
+            user_id: 'usr-3',
+            user_name: 'David Chen',
+            user_avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+            type: 'text',
+            content: '🎨 New Apple-inspired design system tokens and glassmorphic card layouts are live!',
+            media_url: null,
+            background_color: 'linear-gradient(135deg, #34C759 0%, #30B0C7 100%)',
+            text_color: '#FFFFFF',
+            font_style: 'handwriting',
+            privacy_type: 'contacts',
+            privacy_users: '[]',
+            created_at: new Date(Date.now() - 3600000 * 5).toISOString().slice(0, 19).replace('T', ' '),
+            expires_at: new Date(Date.now() + 3600000 * 19).toISOString().slice(0, 19).replace('T', ' ')
+          }
+        ];
+
+        for (const s of sampleStatuses) {
+          await query(
+            `INSERT INTO user_statuses (
+              id, user_id, user_name, user_avatar, type, content, 
+              media_url, background_color, text_color, font_style, 
+              privacy_type, privacy_users, created_at, expires_at, is_deleted
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+            [
+              s.id, s.user_id, s.user_name, s.user_avatar, s.type, s.content,
+              s.media_url, s.background_color, s.text_color, s.font_style,
+              s.privacy_type, s.privacy_users, s.created_at, s.expires_at
+            ]
+          );
+        }
+        console.log(`✅ [Seed] Seeded ${sampleStatuses.length} initial sample statuses in MySQL.`);
+      }
+    } catch (statusErr) {
+      console.warn('Notice: user_statuses seeding notice:', statusErr.message);
+    }
   } catch (err) {
     console.error('❌ [Seed] Error while seeding MySQL database:', err);
   }
