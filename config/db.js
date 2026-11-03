@@ -291,12 +291,20 @@ async function runAutoMigrations(dbPool) {
         status VARCHAR(32) NOT NULL DEFAULT 'completed',
         duration_seconds INT DEFAULT 0,
         channel_id VARCHAR(64) DEFAULT NULL,
+        notes TEXT DEFAULT NULL,
+        summary TEXT DEFAULT NULL,
+        action_items JSON DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_call_caller (caller_id, created_at DESC),
         INDEX idx_call_receiver (receiver_id, created_at DESC),
         INDEX idx_call_channel (channel_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
     `).catch(() => {});
+
+    // Ensure columns exist on already-created tables
+    await dbPool.query(`ALTER TABLE call_logs ADD COLUMN notes TEXT DEFAULT NULL`).catch(() => {});
+    await dbPool.query(`ALTER TABLE call_logs ADD COLUMN summary TEXT DEFAULT NULL`).catch(() => {});
+    await dbPool.query(`ALTER TABLE call_logs ADD COLUMN action_items JSON DEFAULT NULL`).catch(() => {});
 
     console.log("✅ [MySQL Database] Schema auto-migrations, statuses, calls, and chat partitions verified.");
   } catch (migErr) {

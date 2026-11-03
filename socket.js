@@ -188,6 +188,17 @@ export function initSocket(httpServer, corsOrigin) {
       }
     });
 
+    // 7b. Screen Share Toggle
+    socket.on('call:screenshare-toggle', ({ callId, targetUserId, isSharing }) => {
+      if (targetUserId) {
+        io.to(`user:${targetUserId}`).emit('call:screenshare-toggle', {
+          callId,
+          fromUserId: socket.userId,
+          isSharing
+        });
+      }
+    });
+
     // 8. End Call
     socket.on('call:end', ({ callId, targetUserId, durationSeconds = 0, reason = 'Call ended' }) => {
       try {

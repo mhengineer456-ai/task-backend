@@ -3,7 +3,10 @@ import {
   getCallHistory,
   logCall,
   getIceServers,
-  deleteCallLog
+  deleteCallLog,
+  generateCallAiSummary,
+  getCallAiSummary,
+  createTasksFromCallActionItems
 } from '../controllers/callController.js';
 
 const router = express.Router();
@@ -19,5 +22,10 @@ router.get('/ice-servers', getIceServers);
 
 // Delete a call log
 router.delete('/history/:id', deleteCallLog);
+
+// AI Meeting Summarizer & Action Items
+router.post('/:callId/ai-summary', generateCallAiSummary);
+router.get('/:callId/ai-summary', getCallAiSummary);
+router.post('/:callId/create-tasks', createTasksFromCallActionItems);
 
 export default router;
