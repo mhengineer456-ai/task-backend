@@ -13,6 +13,7 @@ import taskRoutes from './routes/taskRoutes.js';
 import leaveRoutes from './routes/leaveRoutes.js';
 import eaRoutes from './routes/eaRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
+import statusRoutes from './routes/statusRoutes.js';
 import logRoutes from './routes/logRoutes.js';
 import sheetRoutes from './routes/sheetRoutes.js';
 import { startAutoSyncSchedule } from './services/sheetRegistryService.js';
@@ -48,6 +49,7 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/leaves', leaveRoutes);
 app.use('/api/ea', eaRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/statuses', statusRoutes);
 app.use('/api/logs', logRoutes);
 app.use('/api/sheets', sheetRoutes);
 

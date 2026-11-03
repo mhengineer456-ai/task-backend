@@ -312,3 +312,47 @@ CREATE TABLE IF NOT EXISTS notifications (
   INDEX idx_notif_task (task_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+-- 16. USER STATUSES / STORIES TABLE (24-Hour Expiration Model)
+CREATE TABLE IF NOT EXISTS user_statuses (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  user_name VARCHAR(128) NOT NULL,
+  user_avatar TEXT,
+  type VARCHAR(32) NOT NULL DEFAULT 'text',
+  content TEXT,
+  media_url LONGTEXT,
+  background_color VARCHAR(32) DEFAULT '#007AFF',
+  text_color VARCHAR(32) DEFAULT '#FFFFFF',
+  font_style VARCHAR(64) DEFAULT 'sans',
+  privacy_type VARCHAR(32) DEFAULT 'contacts',
+  privacy_users JSON,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  expires_at TIMESTAMP NOT NULL,
+  is_deleted BOOLEAN DEFAULT FALSE,
+  INDEX idx_status_user (user_id, created_at DESC),
+  INDEX idx_status_expires (expires_at, is_deleted)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- 17. STATUS VIEWS TABLE (Strictly Genuine Authenticated Viewers Tracking)
+CREATE TABLE IF NOT EXISTS status_views (
+  id VARCHAR(64) PRIMARY KEY,
+  status_id VARCHAR(64) NOT NULL,
+  viewer_id VARCHAR(64) NOT NULL,
+  viewer_name VARCHAR(128) NOT NULL,
+  viewer_avatar TEXT,
+  viewed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_status_viewer (status_id, viewer_id),
+  INDEX idx_view_status (status_id, viewed_at DESC),
+  INDEX idx_view_viewer (viewer_id, viewed_at DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- 18. USER STATUS PRIVACY PREFERENCES TABLE
+CREATE TABLE IF NOT EXISTS user_status_privacy (
+  user_id VARCHAR(64) PRIMARY KEY,
+  privacy_type VARCHAR(32) DEFAULT 'contacts',
+  excluded_users JSON,
+  allowed_users JSON,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+

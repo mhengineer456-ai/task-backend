@@ -114,3 +114,27 @@ export function broadcastChannelCreated(channel) {
   }
 }
 
+export function broadcastStatusCreated(status) {
+  if (io) {
+    io.emit('status:created', status);
+  }
+}
+
+export function broadcastStatusViewed(data) {
+  if (io) {
+    // Notify the status owner directly in their user room for real-time viewer count & list
+    if (data.ownerId) {
+      io.to(`user:${data.ownerId}`).emit('status:viewed', data);
+    }
+    // Also emit globally so viewer badges update
+    io.emit('status:viewed_global', data);
+  }
+}
+
+export function broadcastStatusDeleted(statusId) {
+  if (io) {
+    io.emit('status:deleted', { id: statusId });
+  }
+}
+
+
