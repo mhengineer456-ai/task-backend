@@ -19,10 +19,16 @@ function cleanupCall(callId) {
 export function initSocket(httpServer, corsOrigin) {
   io = new Server(httpServer, {
     cors: {
-      origin: corsOrigin || '*',
+      origin: (origin, callback) => {
+        // Dynamically allow requesting origin for credentials in production
+        callback(null, true);
+      },
       methods: ['GET', 'POST', 'PUT', 'DELETE'],
       credentials: true
-    }
+    },
+    transports: ['websocket', 'polling'],
+    pingTimeout: 30000,
+    pingInterval: 15000
   });
 
   io.on('connection', (socket) => {

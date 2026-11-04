@@ -26,7 +26,15 @@ const server = http.createServer(app);
 initSocket(server, config.corsOrigin);
 
 // Global Middlewares
-app.use(cors({ origin: config.corsOrigin }));
+app.use(cors({
+  origin: (origin, callback) => {
+    // Dynamically reflect origin so withCredentials works cleanly without wildcard rejection in production
+    callback(null, true);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'X-User-Id', 'X-User-Name']
+}));
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ limit: '25mb', extended: true }));
 app.use(requestLogger);

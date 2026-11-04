@@ -199,8 +199,7 @@ export function formatSavedAtDate(rawDate) {
 }
 
 export function loadFactorySheetsData(forceRefresh = false) {
-  const now = Date.now();
-  if (cachedData && !forceRefresh && now - lastCacheTime < 60000) {
+  if (cachedData && !forceRefresh) {
     return cachedData;
   }
 

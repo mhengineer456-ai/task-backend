@@ -23,23 +23,33 @@ export const requestLogger = (req, res, next) => {
     const userId = req.headers['x-user-id'] || req.query.userId || req.body?.senderId || req.body?.userId || null;
     const userName = req.headers['x-user-name'] || req.body?.senderName || req.body?.userName || null;
 
-    logService.log({
-      level,
-      module,
-      action: `${req.method} ${req.originalUrl || req.url}`,
-      userId,
-      userName,
-      ipAddress: typeof ip === 'string' ? ip.split(',')[0].trim() : String(ip),
-      userAgent,
-      statusCode,
-      executionTimeMs: durationMs,
-      details: {
-        method: req.method,
-        path: req.path,
-        query: req.query,
-        statusCode
-      }
-    }).catch(() => {});
+    // In high-traffic cloud deployments, do not write read-only GET requests to the database.
+    // Only persist errors (>= 400) or state mutations (POST, PUT, DELETE) to prevent pool starvation.
+    const shouldPersistToDb = statusCode >= 400 || req.method !== 'GET';
+
+    if (shouldPersistToDb) {
+      logService.log({
+        level,
+        module,
+        action: `${req.method} ${req.originalUrl || req.url}`,
+        userId,
+        userName,
+        ipAddress: typeof ip === 'string' ? ip.split(',')[0].trim() : String(ip),
+        userAgent,
+        statusCode,
+        executionTimeMs: durationMs,
+        details: {
+          method: req.method,
+          path: req.path,
+          query: req.query,
+          statusCode
+        }
+      }).catch(() => {});
+    } else {
+      const color = '\x1b[36m';
+      const reset = '\x1b[0m';
+      console.log(`${color}[${new Date().toISOString()}] [INFO] [${module}] ${req.method} ${req.originalUrl || req.url}${reset} [${durationMs}ms]`);
+    }
   });
 
   next();

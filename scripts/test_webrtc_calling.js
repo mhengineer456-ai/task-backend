@@ -85,7 +85,7 @@ async function runCallingTests() {
     const onConnect = () => {
       connectedCount++;
       if (connectedCount === 2) {
-        startSocketTests();
+        setTimeout(startSocketTests, 100);
       }
     };
 
