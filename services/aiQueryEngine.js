@@ -738,7 +738,7 @@ export function loadFactorySheetsData(forceRefresh = false) {
       linkedSheetsSummary,
       customSheets
     };
-    lastCacheTime = now;
+    lastCacheTime = Date.now();
     return cachedData;
   } catch (err) {
     console.error('Error loading factory sheets data:', err);
@@ -771,15 +771,57 @@ export function analyzeCuttingIntent(text) {
 }
 
 /**
+ * Professional AI Chatbot Response System Directives (ChatGPT / Meta AI Standard)
+ */
+export const CHATGPT_STYLE_SYSTEM_DIRECTIVE = `
+=== PROFESSIONAL AI CHATBOT RESPONSE DIRECTIVE (CHATGPT / META AI STANDARD) ===
+You are PulseBot AI, the intelligent executive manufacturing and enterprise operations copilot for Factory Suite Pro.
+Every response must look clean, intelligent, professional, readable, and well-structured, comparable in presentation quality to ChatGPT and Meta AI.
+
+1. RESPONSE QUALITY & WRITING STYLE:
+- Professional, natural, human-like, grammatically correct, and clear.
+- Friendly, helpful, yet executive. Never unnecessarily casual.
+- Context-aware: Answer the user's specific question directly with high relevance.
+- AVOID conversational filler or throat-clearing (NEVER start with "Sure!", "Certainly!", "I would be happy to help", "Here is what you asked for", "Great question!").
+- Do NOT repeat or echo the user's question back to them as an introductory sentence.
+- AVOID generic filler statements, long unstructured paragraphs, and fake confidence.
+- Restrain emojis: Use at most 1-2 only when they genuinely clarify meaning or status (e.g. ⏳, ✅, ⚠️). Avoid decorative emoji spam.
+- Never invent facts or hallucinate missing lots when database records are provided.
+
+2. ADAPTIVE ANSWER STRUCTURE (Decide format strictly based on question type):
+- Simple / Direct Question: Give a direct, concise 1-3 sentence answer immediately. Keep it short and clear. Do not force headings or tables where unnecessary.
+- Technical & Explanatory Question: Explain the concept clearly -> provide implementation details -> include code examples when useful -> explain important considerations/trade-offs.
+- Comparison Question: ALWAYS provide a clean Markdown Table (| Option/Item | Features | Status/Pros | Recommendation |) with clear column headers, followed by key differences and a justified recommendation.
+- How-To / Procedure: Provide step-by-step numbered instructions (1., 2., 3.) with bold step titles, mention important precautions, and explain the expected outcome.
+- Business / KPI / Operations Question: Use professional Markdown Headings (###) -> highlight key metrics/data -> provide practical recommendations & relevant risks.
+- Coding Question: Provide complete, working, readable code inside syntax-highlighted code blocks with the exact language tag (\`\`\`javascript, \`\`\`sql, \`\`\`python, \`\`\`json, \`\`\`html, \`\`\`css). Explain where the code belongs. Avoid placeholder/incomplete code examples.
+- Mathematical Formulas: Support properly formatted mathematical formulas (e.g. $E = mc^2$ or standard math format).
+
+3. RICH MARKDOWN FORMATTING RULES:
+- Use bold (**text**) for critical terms, KPIs, lot numbers, statuses, and key takeaways.
+- Use inline code (\`variable\`, \`lotNumber\`, \`status\`, \`API\`) for technical terms, endpoints, and exact values.
+- Use blockquotes (> Note: ...) for callouts or critical warnings.
+- Use bullet lists (* or -) for multiple points, instructions, or features.
+- Ensure all markdown tables have proper headers and separator rows (| --- | --- |).
+`;
+
+/**
  * Robust AI Response Generator (Powered by Google Gemini with n8n fallback)
+ * Supports real-time SSE streaming, abort signals, and adaptive formatting
  */
 export async function generateAiResponseWithGemini({
   prompt,
   systemInstruction,
   fallbackText,
-  conversationHistory = []
+  conversationHistory = [],
+  onChunk = null,
+  abortSignal = null
 }) {
   const apiKey = config.geminiApiKey || process.env.GEMINI_API_KEY || '';
+
+  const fullSystemInstruction = systemInstruction
+    ? `${CHATGPT_STYLE_SYSTEM_DIRECTIVE}\n\n=== DOMAIN CONTEXT ===\n${systemInstruction}`
+    : CHATGPT_STYLE_SYSTEM_DIRECTIVE;
 
   const contents = [];
   if (Array.isArray(conversationHistory) && conversationHistory.length > 0) {
@@ -795,25 +837,109 @@ export async function generateAiResponseWithGemini({
     parts: [{ text: prompt }]
   });
 
+  const isHallucinatedMissing = (text) => {
+    if (!text || typeof text !== 'string') return true;
+    return /(?:active nahi hai|data available nahi hai|record nahi mila|not found in(?: the)? active|not available in live production|kya aap confirm kar sakte hain|purana\/closed lot hai)/i.test(text);
+  };
+
   if (apiKey) {
     try {
+      // Priority model candidates
+      const modelCandidates = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-flash-latest'];
+
+      // 1. If onChunk callback is provided, attempt real-time SSE Streaming
+      if (typeof onChunk === 'function') {
+        for (const model of modelCandidates) {
+          const streamUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
+          const streamController = new AbortController();
+          const combinedSignal = abortSignal || streamController.signal;
+          const timeoutId = setTimeout(() => streamController.abort(), 20000);
+
+          try {
+            const streamRes = await fetch(streamUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                systemInstruction: { parts: [{ text: fullSystemInstruction }] },
+                contents,
+                generationConfig: {
+                  temperature: 0.25,
+                  maxOutputTokens: 8192
+                }
+              }),
+              signal: combinedSignal
+            });
+
+            clearTimeout(timeoutId);
+
+            if (streamRes.ok && streamRes.body) {
+              const reader = streamRes.body.getReader();
+              const decoder = new TextDecoder('utf-8');
+              let accumulatedText = '';
+              let buffer = '';
+
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                  const trimmed = line.trim();
+                  if (trimmed.startsWith('data: ')) {
+                    const jsonStr = trimmed.slice(6).trim();
+                    if (!jsonStr || jsonStr === '[DONE]') continue;
+                    try {
+                      const parsed = JSON.parse(jsonStr);
+                      const partText = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
+                      if (partText) {
+                        accumulatedText += partText;
+                        onChunk(partText, accumulatedText);
+                      }
+                    } catch (e) {}
+                  }
+                }
+              }
+
+              if (accumulatedText && accumulatedText.trim()) {
+                const cleanStreamed = accumulatedText.trim();
+                if (!(isHallucinatedMissing(cleanStreamed) && fallbackText && fallbackText.length > 50)) {
+                  return cleanStreamed;
+                }
+              }
+            }
+          } catch (streamErr) {
+            clearTimeout(timeoutId);
+            if (abortSignal?.aborted) {
+              console.log('Stream generation aborted by user.');
+              return null;
+            }
+            // Proceed to next candidate or non-streaming fallback
+          }
+        }
+      }
+
+      // 2. Standard Non-Streaming Call
       const callGeminiOnce = async (modelName = 'gemini-3.5-flash-lite') => {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 12000);
+        const combinedSignal = abortSignal || controller.signal;
+        const timeoutId = setTimeout(() => controller.abort(), 14000);
         try {
           const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
           const res = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              systemInstruction: { parts: [{ text: systemInstruction }] },
+              systemInstruction: { parts: [{ text: fullSystemInstruction }] },
               contents,
               generationConfig: {
                 temperature: 0.25,
                 maxOutputTokens: 8192
               }
             }),
-            signal: controller.signal
+            signal: combinedSignal
           });
           clearTimeout(timeoutId);
           if (res.ok) {
@@ -827,18 +953,10 @@ export async function generateAiResponseWithGemini({
         return null;
       };
 
-      const isHallucinatedMissing = (text) => {
-        if (!text || typeof text !== 'string') return true;
-        return /(?:active nahi hai|data available nahi hai|record nahi mila|not found in(?: the)? active|not available in live production|kya aap confirm kar sakte hain|purana\/closed lot hai)/i.test(text);
-      };
-
-      // Test active, verified working flash endpoints in priority order
-      const modelCandidates = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-flash-latest', 'gemini-2.5-flash-lite'];
       let answer = null;
       for (const model of modelCandidates) {
         answer = await callGeminiOnce(model);
         if (answer) {
-          // If the model produced a hallucinated missing-lot claim while fallback has verified data, discard it
           if (isHallucinatedMissing(answer) && fallbackText && fallbackText.length > 50) {
             answer = null;
             continue;
@@ -848,15 +966,22 @@ export async function generateAiResponseWithGemini({
       }
 
       if (answer) {
+        if (typeof onChunk === 'function') {
+          // If stream wasn't available, progressively stream answer tokens
+          onChunk(answer, answer);
+        }
         return answer;
       }
     } catch (err) {
-      console.warn('Gemini direct call notice:', err.message);
+      console.warn('Gemini call notice:', err.message);
     }
   }
 
-  // If rich, verified factory fallback text is already available, prefer it over remote blind webhooks!
+  // Fallback to verified local text if available
   if (fallbackText && fallbackText.length > 50 && !fallbackText.includes('Factory Suite Pro AI Engine is active')) {
+    if (typeof onChunk === 'function') {
+      onChunk(fallbackText, fallbackText);
+    }
     return fallbackText;
   }
 
@@ -4281,7 +4406,9 @@ Directives:
     prompt: p,
     systemInstruction: generalSysPrompt,
     fallbackText: defaultFallback,
-    conversationHistory
+    conversationHistory,
+    onChunk: context.onChunk,
+    abortSignal: context.abortSignal
   });
 
   return { handled: true, answer: aiAnswer };
