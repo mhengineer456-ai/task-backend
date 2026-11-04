@@ -8,7 +8,10 @@ import {
   broadcastReaction,
   broadcastChannelCreated,
   broadcastTaskCreated,
-  broadcastNotification
+  broadcastNotification,
+  broadcastMessageDeleted,
+  broadcastChatCleared,
+  broadcastChannelDeleted
 } from '../socket.js';
 import { logService } from '../services/logService.js';
 import { generateJobOrderPdf, generatePartyReportPdf } from '../services/pdfService.js';
@@ -1539,4 +1542,96 @@ export const getAiContextForN8n = async (req, res) => {
     return res.status(500).json({ success: false, error: error.message });
   }
 };
+
+/**
+ * Delete a particular message
+ * Removes reactions & deletes message, then broadcasts live socket event
+ */
+export const deleteMessage = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const { channelId } = req.query;
+
+    if (!messageId) {
+      return res.status(400).json({ success: false, error: 'Message ID is required' });
+    }
+
+    if (isConnected()) {
+      let resolvedChannelId = channelId;
+      if (!resolvedChannelId) {
+        const rows = await query('SELECT channel_id FROM chat_messages WHERE id = ?', [messageId]);
+        if (rows && rows.length > 0) {
+          resolvedChannelId = rows[0].channel_id;
+        }
+      }
+
+      await query('DELETE FROM chat_reactions WHERE message_id = ?', [messageId]);
+      await query('DELETE FROM chat_messages WHERE id = ?', [messageId]);
+
+      broadcastMessageDeleted(messageId, resolvedChannelId);
+    }
+
+    return res.json({ success: true, messageId, channelId });
+  } catch (err) {
+    console.error('Error deleting message:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * Clear all messages in a specific channel
+ * Deletes all messages & reactions for the channel and resets last_message
+ */
+export const clearChannelMessages = async (req, res) => {
+  try {
+    const { channelId } = req.params;
+
+    if (!channelId) {
+      return res.status(400).json({ success: false, error: 'Channel ID is required' });
+    }
+
+    if (isConnected()) {
+      // Find all message IDs for this channel to clean reactions
+      await query('DELETE FROM chat_reactions WHERE message_id IN (SELECT id FROM chat_messages WHERE channel_id = ?)', [channelId]);
+      await query('DELETE FROM chat_messages WHERE channel_id = ?', [channelId]);
+      await query('UPDATE chat_channels SET last_message_id = NULL, last_message_at = NULL WHERE id = ?', [channelId]);
+
+      broadcastChatCleared(channelId);
+    }
+
+    return res.json({ success: true, channelId, message: 'Chat cleared successfully' });
+  } catch (err) {
+    console.error('Error clearing chat messages:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * Delete an entire conversation / channel
+ * Deletes channel, member associations, reactions and messages
+ */
+export const deleteChannel = async (req, res) => {
+  try {
+    const { channelId } = req.params;
+
+    if (!channelId) {
+      return res.status(400).json({ success: false, error: 'Channel ID is required' });
+    }
+
+    if (isConnected()) {
+      await query('DELETE FROM chat_reactions WHERE message_id IN (SELECT id FROM chat_messages WHERE channel_id = ?)', [channelId]);
+      await query('DELETE FROM chat_messages WHERE channel_id = ?', [channelId]);
+      await query('DELETE FROM chat_channel_members WHERE channel_id = ?', [channelId]);
+      await query('DELETE FROM chat_channels WHERE id = ?', [channelId]);
+
+      broadcastChannelDeleted(channelId);
+    }
+
+    return res.json({ success: true, channelId, message: 'Conversation deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting channel:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 

@@ -384,4 +384,23 @@ export function broadcastStatusDeleted(statusId) {
   }
 }
 
+export function broadcastMessageDeleted(messageId, channelId) {
+  if (io) {
+    io.emit('chat:message_deleted', { messageId, channelId });
+  }
+}
+
+export function broadcastChatCleared(channelId) {
+  if (io) {
+    io.emit('chat:cleared', { channelId });
+  }
+}
+
+export function broadcastChannelDeleted(channelId) {
+  if (io) {
+    io.emit('chat:channel_deleted', { channelId });
+  }
+}
+
+
 

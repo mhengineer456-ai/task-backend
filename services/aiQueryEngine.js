@@ -797,6 +797,25 @@ export async function generateAiResponseWithGemini({
 
   if (apiKey) {
     try {
+      const cleanFormattingDirectives = `
+CRITICAL FORMATTING GUIDELINES (FOR RESPONSIVE WEB & MOBILE):
+1. Clean Markdown Bolding:
+   - NEVER place spaces before colons inside bold markdown tags: ALWAYS write "**Key:** Value", NEVER "**Key: ** Value".
+2. Statistical Breakdown Summaries:
+   - Always format high-level status counts as clean bullet points:
+     • **Total Master Orders:** [Count] Lots
+     • **Cut Complete:** [Count] Lots (Factory floor confirmed)
+     • **Cancelled Orders:** [Count] Lots (Brief reason)
+     • **Cutting Pending (Uncut):** [Count] Lots (Awaiting cutting floor allocation)
+3. Multiple Lot Specifications / Inventory Records:
+   - Present each item on its own numbered line with pipe-separated attributes:
+     1. Lot [Number]: [Job Order] | [Garment & Style] | Fabric: [Fabric Spec] | Qty: [Quantity] | Emb: [Embroidery/NA]
+   - Keep attribute labels consistent ("Fabric:", "Qty:", "Emb:") so our UI transforms them into clean interactive data tables and mobile cards.
+4. Professional Factory Tone:
+   - Always sound like a senior production controller. Never mention spreadsheets or raw sheets.`;
+
+      const enhancedInstruction = systemInstruction ? `${systemInstruction}\n\n${cleanFormattingDirectives}` : cleanFormattingDirectives;
+
       const callGeminiOnce = async (modelName = 'gemini-3.5-flash-lite') => {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 12000);
@@ -806,7 +825,7 @@ export async function generateAiResponseWithGemini({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              systemInstruction: { parts: [{ text: systemInstruction }] },
+              systemInstruction: { parts: [{ text: enhancedInstruction }] },
               contents,
               generationConfig: {
                 temperature: 0.25,

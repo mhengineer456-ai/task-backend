@@ -3,6 +3,9 @@ import {
   getChannels,
   getMessagesByChannel,
   sendMessage,
+  deleteMessage,
+  clearChannelMessages,
+  deleteChannel,
   createOrGetDirectChannel,
   createGroupChannel,
   toggleReaction,
@@ -21,6 +24,10 @@ router.get('/channels', getChannels);
 router.get('/messages/:channelId', getMessagesByChannel);
 router.get('/channels/:channelId/messages', getMessagesByChannel);
 router.post('/messages', sendMessage);
+router.delete('/messages/:messageId', deleteMessage);
+router.delete('/channels/:channelId/messages', clearChannelMessages);
+router.post('/channels/:channelId/clear', clearChannelMessages);
+router.delete('/channels/:channelId', deleteChannel);
 router.post('/messages/:messageId/reaction', toggleReaction);
 router.post('/direct-channel', createOrGetDirectChannel);
 router.post('/groups', createGroupChannel);
