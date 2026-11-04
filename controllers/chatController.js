@@ -17,6 +17,16 @@ import { logService } from '../services/logService.js';
 import { generateJobOrderPdf, generatePartyReportPdf } from '../services/pdfService.js';
 import { processUniversalQuery, loadFactorySheetsData } from '../services/aiQueryEngine.js';
 import { buildAiAggregatedContext } from '../services/aiContextAggregator.js';
+import { getAccessoryDbStatus, isAccessoryConnected, refreshAccessoryTableCounts } from '../config/accessoryDb.js';
+import {
+  getCompleteAccessoryReportForLot,
+  getWeightCaptureByLot,
+  getRecentWeightCaptures,
+  getWeightCaptureSummary,
+  getRecentIssueLogs,
+  getIssueLogsByLot,
+  getMaterialsInventory
+} from '../services/accessoryQueryService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -45,13 +55,13 @@ export const getChannels = async (req, res) => {
            VALUES (?, '🤖 PulseBot AI Assistant', 'ai', 'Private AI Assistant Copilot powered by Gemini 2.5', ?, ?, 1)
            ON DUPLICATE KEY UPDATE name = '🤖 PulseBot AI Assistant', type = 'ai', is_private = 1`,
           [userAiChannelId, userId, JSON.stringify([userId])]
-        ).catch(() => {});
+        ).catch(() => { });
         await query(
           `INSERT INTO chat_channel_members (id, channel_id, user_id, role, unread_count)
            VALUES (?, ?, ?, 'owner', 0)
            ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP`,
           [`mem-${userAiChannelId}-${userId}`, userAiChannelId, userId]
-        ).catch(() => {});
+        ).catch(() => { });
 
         // High-performance relational query: return public channels, member channels, and user's own AI channel
         rows = await query(`
@@ -74,7 +84,7 @@ export const getChannels = async (req, res) => {
       let allUsers = [];
       try {
         allUsers = await query('SELECT id, name, role, department, avatar FROM users');
-      } catch (e) {}
+      } catch (e) { }
 
       const formatted = (rows || []).map(c => {
         let participantIds = typeof c.participant_ids === 'string'
@@ -221,7 +231,7 @@ export const getMessagesByChannel = async (req, res) => {
         await query(
           'UPDATE chat_channel_members SET unread_count = 0, last_read_at = CURRENT_TIMESTAMP WHERE channel_id = ? AND user_id = ?',
           [targetChannelId, userId]
-        ).catch(() => {});
+        ).catch(() => { });
       }
 
       const formatted = (rows || []).map(m => ({
@@ -345,7 +355,7 @@ export const sendMessage = async (req, res) => {
         if (uRows && uRows[0] && uRows[0].avatar) {
           resolvedAvatar = uRows[0].avatar;
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const createdMessage = {
@@ -402,13 +412,13 @@ export const sendMessage = async (req, res) => {
       await query(
         'UPDATE chat_channels SET last_message_id = ?, last_message_at = CURRENT_TIMESTAMP WHERE id = ?',
         [messageId, resolvedChannelId]
-      ).catch(() => {});
+      ).catch(() => { });
 
       // 3. Update unread_count for other channel members
       await query(
         'UPDATE chat_channel_members SET unread_count = unread_count + 1 WHERE channel_id = ? AND user_id != ?',
         [resolvedChannelId, senderId]
-      ).catch(() => {});
+      ).catch(() => { });
 
       // 4. Ensure sender is registered in chat_channel_members and has unread_count = 0
       const memberKey = `mem-${resolvedChannelId}-${senderId}`;
@@ -417,7 +427,7 @@ export const sendMessage = async (req, res) => {
          VALUES (?, ?, ?, 'member', 0, ?, CURRENT_TIMESTAMP)
          ON DUPLICATE KEY UPDATE unread_count = 0, last_read_message_id = ?, last_read_at = CURRENT_TIMESTAMP`,
         [memberKey, resolvedChannelId, senderId, messageId, messageId]
-      ).catch(() => {});
+      ).catch(() => { });
 
       // 5. Enterprise system log entry
       logService.info('CHAT', messageType === 'audio' ? 'VOICE_NOTE_SENT' : 'MESSAGE_SENT', {
@@ -427,7 +437,7 @@ export const sendMessage = async (req, res) => {
         entityType: 'chat_message',
         entityId: messageId,
         details: { channelId: resolvedChannelId, messageType, hasAttachment: !!fileAttachment || !!imageUrl, taskId }
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     // Broadcast in real-time to channel and global activity
@@ -505,7 +515,7 @@ export const toggleReaction = async (req, res) => {
         entityType: 'chat_reaction',
         entityId: messageId,
         details: { channelId, emoji }
-      }).catch(() => {});
+      }).catch(() => { });
 
       // 4. Broadcast reaction change live to all clients
       broadcastReaction(messageId, channelId, reactions);
@@ -543,7 +553,7 @@ export const createOrGetDirectChannel = async (req, res) => {
              VALUES (?, ?, ?, 'member')
              ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP`,
             [`mem-${channelId}-${uid}`, channelId, uid]
-          ).catch(() => {});
+          ).catch(() => { });
         }
 
         return res.json({
@@ -575,7 +585,7 @@ export const createOrGetDirectChannel = async (req, res) => {
            VALUES (?, ?, ?, 'member', 0)
            ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP`,
           [`mem-${channelId}-${uid}`, channelId, uid]
-        ).catch(() => {});
+        ).catch(() => { });
       }
 
       logService.info('CHAT', 'DIRECT_CHANNEL_CREATED', {
@@ -583,7 +593,7 @@ export const createOrGetDirectChannel = async (req, res) => {
         entityType: 'chat_channel',
         entityId: channelId,
         details: { targetUserId }
-      }).catch(() => {});
+      }).catch(() => { });
 
       return res.status(201).json({
         success: true,
@@ -752,7 +762,7 @@ async function processAiTaskDelegation({
     await query(
       'INSERT INTO notifications (id, title, message, type, task_id, user_id, is_read) VALUES (?, ?, ?, ?, ?, ?, 0)',
       [userNotif.id, userNotif.title, userNotif.message, userNotif.type, userNotif.taskId, targetUser.id]
-    ).catch(() => {});
+    ).catch(() => { });
 
     broadcastNotification(userNotif, targetUser.id);
 
@@ -802,7 +812,7 @@ async function processAiTaskDelegation({
         await query(
           'INSERT INTO notifications (id, title, message, type, task_id, user_id, is_read) VALUES (?, ?, ?, ?, ?, ?, 0)',
           [eaNotif.id, eaNotif.title, eaNotif.message, eaNotif.type, eaNotif.taskId, ea.id]
-        ).catch(() => {});
+        ).catch(() => { });
 
         broadcastNotification(eaNotif, ea.id);
       }
@@ -1049,42 +1059,42 @@ export const askAiAssistant = async (req, res) => {
           aiReplyText = `🤖 *PulseBot*: Received "${message}". Factory Suite Pro AI Engine is active and ready to assist you.`;
         }
 
-      // Attach PDF ONLY when user gave explicit command to create, generate, or download PDF
-      const userAskedForPdf = /\b(pdf|generate\s*pdf|create\s*pdf|download\s*pdf|make\s*pdf|print\s*pdf|export\s*pdf|pdf\s*bana|bana\s*do\s*pdf|krdo\s*generate\s*pdf|pdf.*chahiye|chahiye.*pdf|pdf\s*do|show\s*pdf|slip\s*download|download\s*slip|slip\s*chahiye)\b/i.test(message);
+        // Attach PDF ONLY when user gave explicit command to create, generate, or download PDF
+        const userAskedForPdf = /\b(pdf|generate\s*pdf|create\s*pdf|download\s*pdf|make\s*pdf|print\s*pdf|export\s*pdf|pdf\s*bana|bana\s*do\s*pdf|krdo\s*generate\s*pdf|pdf.*chahiye|chahiye.*pdf|pdf\s*do|show\s*pdf|slip\s*download|download\s*slip|slip\s*chahiye)\b/i.test(message);
 
-      if (userAskedForPdf && !pdfAttachment) {
-        if (/\b(331|ss\s*lots|lots\s*of\s*ss|ss\s*party)\b/i.test(message) || /\b(ss\s*party|buyer:|total\s*\d+\s*lots)\b/i.test(aiReplyText)) {
-          let pName = 'SS';
-          if (/zara/i.test(message + ' ' + aiReplyText)) pName = 'Zara';
-          else if (/h&m|hm/i.test(message + ' ' + aiReplyText)) pName = 'H&M';
-          else if (/mohit/i.test(message + ' ' + aiReplyText)) pName = 'Mohit Hosiery';
-          const pSlug = pName.replace(/[^a-zA-Z0-9_-]/g, '_');
-          const isPending = /uncut|pending/i.test(message);
-          pdfAttachment = {
-            type: 'party',
-            partyName: isPending ? `${pName} (Uncut Lots)` : pName,
-            downloadUrl: `http://localhost:5000/api/chat/pdf/party/${encodeURIComponent(pSlug)}${isPending ? '?status=pending' : ''}`,
-            filename: `${pSlug}_${isPending ? 'Uncut_' : ''}Lots_Report.pdf`,
-            title: `${pName} - ${isPending ? 'Uncut' : 'Complete'} Lots Report`
-          };
-        } else {
-          const mentionedLot = message.match(/(?:LOT[-_\s]*)?(\d{4,7})\b/i) || aiReplyText.match(/(?:LOT[-_\s]*)?(\d{4,7})\b/i);
-          if (mentionedLot) {
-            const lNum = mentionedLot[1];
-            const lotInfo = loadFactorySheetsData()?.lotsMap?.get(lNum);
-            const jNum = lotInfo?.jo || 'JO-1';
+        if (userAskedForPdf && !pdfAttachment) {
+          if (/\b(331|ss\s*lots|lots\s*of\s*ss|ss\s*party)\b/i.test(message) || /\b(ss\s*party|buyer:|total\s*\d+\s*lots)\b/i.test(aiReplyText)) {
+            let pName = 'SS';
+            if (/zara/i.test(message + ' ' + aiReplyText)) pName = 'Zara';
+            else if (/h&m|hm/i.test(message + ' ' + aiReplyText)) pName = 'H&M';
+            else if (/mohit/i.test(message + ' ' + aiReplyText)) pName = 'Mohit Hosiery';
+            const pSlug = pName.replace(/[^a-zA-Z0-9_-]/g, '_');
+            const isPending = /uncut|pending/i.test(message);
             pdfAttachment = {
-              lotNumber: lNum,
-              jobOrderNo: jNum,
-              downloadUrl: `http://localhost:5000/api/chat/pdf/${lNum}`,
-              filename: `JobOrder_${jNum}_Lot_${lNum}.pdf`,
-              title: `Job Order & Production Slip (${jNum} • Lot ${lNum})`
+              type: 'party',
+              partyName: isPending ? `${pName} (Uncut Lots)` : pName,
+              downloadUrl: `http://localhost:5000/api/chat/pdf/party/${encodeURIComponent(pSlug)}${isPending ? '?status=pending' : ''}`,
+              filename: `${pSlug}_${isPending ? 'Uncut_' : ''}Lots_Report.pdf`,
+              title: `${pName} - ${isPending ? 'Uncut' : 'Complete'} Lots Report`
             };
+          } else {
+            const mentionedLot = message.match(/(?:LOT[-_\s]*)?(\d{4,7})\b/i) || aiReplyText.match(/(?:LOT[-_\s]*)?(\d{4,7})\b/i);
+            if (mentionedLot) {
+              const lNum = mentionedLot[1];
+              const lotInfo = loadFactorySheetsData()?.lotsMap?.get(lNum);
+              const jNum = lotInfo?.jo || 'JO-1';
+              pdfAttachment = {
+                lotNumber: lNum,
+                jobOrderNo: jNum,
+                downloadUrl: `http://localhost:5000/api/chat/pdf/${lNum}`,
+                filename: `JobOrder_${jNum}_Lot_${lNum}.pdf`,
+                title: `Job Order & Production Slip (${jNum} • Lot ${lNum})`
+              };
+            }
           }
         }
       }
     }
-  }
 
     const messageId = `msg-ai-${Date.now()}`;
     const timestamp = new Date().toISOString();
@@ -1117,14 +1127,14 @@ export const askAiAssistant = async (req, res) => {
       await query(
         'UPDATE chat_channels SET last_message_id = ?, last_message_at = CURRENT_TIMESTAMP WHERE id = ?',
         [messageId, targetChannelId]
-      ).catch(() => {});
+      ).catch(() => { });
 
       logService.info('AI', 'AI_REPLY_GENERATED', {
         userId,
         entityType: 'chat_message',
         entityId: messageId,
         details: { channelId: targetChannelId, isN8nConnected, hasPdf: Boolean(pdfAttachment), hasImage: Boolean(imageAttachment), hasGallery: Boolean(imageGallery), hasTracking: Boolean(trackingData), hasDelegatedTask: Boolean(delegatedTask) }
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     const aiMessage = {
@@ -1358,122 +1368,122 @@ export const generatePartyPdf = async (req, res) => {
 
 
 export const getAiStatus = async (req, res) => {
-try {
-let n8nReachable = false;
-try {
-const controller = new AbortController();
-const timeoutId = setTimeout(() => controller.abort(), 2000);
-const pingRes = await fetch('http://localhost:5678/healthz', { signal: controller.signal }).catch(() => null);
-clearTimeout(timeoutId);
-if (pingRes && pingRes.ok) n8nReachable = true;
-} catch (e) {}
-res.json({
-success: true,
-provider: 'n8n AI Agent (Google Gemini Chat Model)',
-workflow: 'My workflow 4',
-workflowId: 'DzBNwKVTSUvLQTee',
-webhookUrl: config.n8nChatWebhookUrl,
-n8nReachable
-});
-} catch (error) {
-res.status(500).json({ success: false, error: 'Could not fetch AI status' });
-}
+  try {
+    let n8nReachable = false;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      const pingRes = await fetch('http://localhost:5678/healthz', { signal: controller.signal }).catch(() => null);
+      clearTimeout(timeoutId);
+      if (pingRes && pingRes.ok) n8nReachable = true;
+    } catch (e) { }
+    res.json({
+      success: true,
+      provider: 'n8n AI Agent (Google Gemini Chat Model)',
+      workflow: 'My workflow 4',
+      workflowId: 'DzBNwKVTSUvLQTee',
+      webhookUrl: config.n8nChatWebhookUrl,
+      n8nReachable
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Could not fetch AI status' });
+  }
 };
 export const createGroupChannel = async (req, res) => {
-try {
-  const { name, description = '', memberIds = [], creatorId, creatorName, avatar = null } = req.body;
-if (!name || !name.trim()) {
-return res.status(400).json({ success: false, error: 'Group name is required' });
-}
-if (!creatorId) {
-return res.status(400).json({ success: false, error: 'Creator ID is required' });
-}
-// Ensure creator is in memberIds and remove duplicates
-const allMemberIds = Array.from(new Set([creatorId, ...(Array.isArray(memberIds) ? memberIds : [])])).filter(Boolean);
-if (allMemberIds.length < 2) {
-return res.status(400).json({ success: false, error: 'Please select at least 1 other team member for the group' });
-}
-const channelId = `group-${Date.now()}`;
-const timestamp = new Date().toISOString();
-if (isConnected()) {
-// 1. Create channel in chat_channels
-await query(
-`INSERT INTO chat_channels (id, name, type, description, created_by, participant_ids, is_private, avatar)
+  try {
+    const { name, description = '', memberIds = [], creatorId, creatorName, avatar = null } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'Group name is required' });
+    }
+    if (!creatorId) {
+      return res.status(400).json({ success: false, error: 'Creator ID is required' });
+    }
+    // Ensure creator is in memberIds and remove duplicates
+    const allMemberIds = Array.from(new Set([creatorId, ...(Array.isArray(memberIds) ? memberIds : [])])).filter(Boolean);
+    if (allMemberIds.length < 2) {
+      return res.status(400).json({ success: false, error: 'Please select at least 1 other team member for the group' });
+    }
+    const channelId = `group-${Date.now()}`;
+    const timestamp = new Date().toISOString();
+    if (isConnected()) {
+      // 1. Create channel in chat_channels
+      await query(
+        `INSERT INTO chat_channels (id, name, type, description, created_by, participant_ids, is_private, avatar)
 VALUES (?, ?, 'group', ?, ?, ?, 1, ?)`,
-[channelId, name.trim(), description.trim(), creatorId, JSON.stringify(allMemberIds), avatar || null]
-);
-// 2. Insert member records into chat_channel_members for every person
-for (const uid of allMemberIds) {
-const role = uid === creatorId ? 'admin' : 'member';
-const memberKey = `mem-${channelId}-${uid}`;
-await query(
-`INSERT INTO chat_channel_members (id, channel_id, user_id, role, unread_count)
+        [channelId, name.trim(), description.trim(), creatorId, JSON.stringify(allMemberIds), avatar || null]
+      );
+      // 2. Insert member records into chat_channel_members for every person
+      for (const uid of allMemberIds) {
+        const role = uid === creatorId ? 'admin' : 'member';
+        const memberKey = `mem-${channelId}-${uid}`;
+        await query(
+          `INSERT INTO chat_channel_members (id, channel_id, user_id, role, unread_count)
 VALUES (?, ?, ?, ?, 0)
 ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP`,
-[memberKey, channelId, uid, role]
-);
-}
-// 3. System message indicating group creation
-const sysMsgId = `msg-sys-${Date.now()}`;
-const sysText = `🎉 ${creatorName || 'A team member'} created group "${name.trim()}" with ${allMemberIds.length} members.`;
-await query(
-`INSERT INTO chat_messages (id, channel_id, sender_id, sender_name, sender_role, sender_avatar, message_type, text, is_ai, status)
+          [memberKey, channelId, uid, role]
+        );
+      }
+      // 3. System message indicating group creation
+      const sysMsgId = `msg-sys-${Date.now()}`;
+      const sysText = `🎉 ${creatorName || 'A team member'} created group "${name.trim()}" with ${allMemberIds.length} members.`;
+      await query(
+        `INSERT INTO chat_messages (id, channel_id, sender_id, sender_name, sender_role, sender_avatar, message_type, text, is_ai, status)
 VALUES (?, ?, 'system', 'TaskPulse System', 'System', '📢', 'system', ?, 0, 'delivered')`,
-[sysMsgId, channelId, sysText]
-).catch(() => {});
-await query(
-'UPDATE chat_channels SET last_message_id = ?, last_message_at = CURRENT_TIMESTAMP WHERE id = ?',
-[sysMsgId, channelId]
-).catch(() => {});
-// 4. Audit Log
-logService.info('CHAT', 'GROUP_CREATED', {
-userId: creatorId,
-userName: creatorName,
-entityType: 'chat_channel',
-entityId: channelId,
-details: { name: name.trim(), membersCount: allMemberIds.length }
-}).catch(() => {});
-const newChannel = {
-id: channelId,
-name: name.trim(),
-type: 'group',
-avatar: avatar || null,
-description: description.trim(),
-createdBy: creatorId,
-participantIds: allMemberIds,
-isPrivate: true,
-unreadCount: 0,
-roleBadge: `Group • ${allMemberIds.length} members`,
-createdAt: timestamp,
-lastMessageAt: timestamp
-};
-const systemMessage = {
-id: sysMsgId,
-channelId,
-senderId: 'system',
-senderName: 'TaskPulse System',
-senderRole: 'System',
-senderAvatar: '📢',
-messageType: 'system',
-text: sysText,
-isAi: false,
-status: 'delivered',
-timestamp
-};
-// 5. Broadcast to all online users
-broadcastChannelCreated(newChannel);
-broadcastChatMessage(channelId, systemMessage);
-return res.status(201).json({
-success: true,
-channel: newChannel,
-message: systemMessage
-});
-}
-res.json({ success: true, channel: { id: channelId, name: name.trim(), type: 'group', participantIds: allMemberIds } });
-} catch (error) {
-console.error('Error in createGroupChannel controller:', error);
-res.status(500).json({ success: false, error: 'Group creation failed' });
-}
+        [sysMsgId, channelId, sysText]
+      ).catch(() => { });
+      await query(
+        'UPDATE chat_channels SET last_message_id = ?, last_message_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [sysMsgId, channelId]
+      ).catch(() => { });
+      // 4. Audit Log
+      logService.info('CHAT', 'GROUP_CREATED', {
+        userId: creatorId,
+        userName: creatorName,
+        entityType: 'chat_channel',
+        entityId: channelId,
+        details: { name: name.trim(), membersCount: allMemberIds.length }
+      }).catch(() => { });
+      const newChannel = {
+        id: channelId,
+        name: name.trim(),
+        type: 'group',
+        avatar: avatar || null,
+        description: description.trim(),
+        createdBy: creatorId,
+        participantIds: allMemberIds,
+        isPrivate: true,
+        unreadCount: 0,
+        roleBadge: `Group • ${allMemberIds.length} members`,
+        createdAt: timestamp,
+        lastMessageAt: timestamp
+      };
+      const systemMessage = {
+        id: sysMsgId,
+        channelId,
+        senderId: 'system',
+        senderName: 'TaskPulse System',
+        senderRole: 'System',
+        senderAvatar: '📢',
+        messageType: 'system',
+        text: sysText,
+        isAi: false,
+        status: 'delivered',
+        timestamp
+      };
+      // 5. Broadcast to all online users
+      broadcastChannelCreated(newChannel);
+      broadcastChatMessage(channelId, systemMessage);
+      return res.status(201).json({
+        success: true,
+        channel: newChannel,
+        message: systemMessage
+      });
+    }
+    res.json({ success: true, channel: { id: channelId, name: name.trim(), type: 'group', participantIds: allMemberIds } });
+  } catch (error) {
+    console.error('Error in createGroupChannel controller:', error);
+    res.status(500).json({ success: false, error: 'Group creation failed' });
+  }
 };
 
 /**
@@ -1633,5 +1643,90 @@ export const deleteChannel = async (req, res) => {
     return res.status(500).json({ success: false, error: err.message });
   }
 };
+
+/**
+ * Get Accessory SQL Database Connection Status and Table Counts
+ */
+export const getAccessoryStatus = async (req, res) => {
+  try {
+    await refreshAccessoryTableCounts().catch(() => { });
+    const status = getAccessoryDbStatus();
+    return res.json({ success: true, ...status });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * Get Complete Accessory Intelligence Report for a specific Lot
+ */
+export const getAccessoryLotReport = async (req, res) => {
+  try {
+    const { lotNo } = req.params;
+    if (!lotNo) {
+      return res.status(400).json({ success: false, error: 'Lot number is required' });
+    }
+    const report = await getCompleteAccessoryReportForLot(lotNo);
+    return res.json({ success: true, report });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * Get Recent Weight Captures
+ */
+export const getAccessoryWeightCaptures = async (req, res) => {
+  try {
+    const { lotNo, limit } = req.query;
+    let data;
+    if (lotNo) {
+      data = await getWeightCaptureByLot(lotNo);
+    } else {
+      data = await getRecentWeightCaptures(limit || 50);
+    }
+    const summary = await getWeightCaptureSummary();
+    return res.json({ success: true, data, summary });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * Get Accessory Issue Logs
+ */
+export const getAccessoryIssueLogs = async (req, res) => {
+  try {
+    const { lotId, limit } = req.query;
+    let data;
+    if (lotId) {
+      data = await getIssueLogsByLot(lotId);
+    } else {
+      data = await getRecentIssueLogs(limit || 50);
+    }
+    return res.json({ success: true, data });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * Get Accessory Materials & Stock Inventory
+ */
+export const getAccessoryMaterials = async (req, res) => {
+  try {
+    const { search, category, lowStockOnly, limit } = req.query;
+    const data = await getMaterialsInventory({
+      search,
+      category,
+      lowStockOnly: lowStockOnly === 'true',
+      limit
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 
 

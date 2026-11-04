@@ -4,6 +4,22 @@ import { fileURLToPath } from 'url';
 import { query, isConnected } from '../config/db.js';
 import { config } from '../config/config.js';
 import { processJobOrderQuery } from './jobOrderQueryEngine.js';
+import {
+  getWeightCaptureByLot,
+  getRecentWeightCaptures,
+  getWeightCaptureSummary,
+  getIssueLogsByLot,
+  getRecentIssueLogs,
+  getMaterialsInventory,
+  searchMaterialsByNameOrCode,
+  getLowStockMaterials,
+  getTrimsByLot,
+  getCompleteAccessoryReportForLot,
+  formatWeightRecordsToMarkdown,
+  formatIssueLogsToMarkdown,
+  formatMaterialsToMarkdown
+} from './accessoryQueryService.js';
+import { getAccessoryDbStatus, isAccessoryConnected } from '../config/accessoryDb.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -199,7 +215,8 @@ export function formatSavedAtDate(rawDate) {
 }
 
 export function loadFactorySheetsData(forceRefresh = false) {
-  if (cachedData && !forceRefresh) {
+  const now = Date.now();
+  if (cachedData && !forceRefresh && (now - lastCacheTime < 30000)) {
     return cachedData;
   }
 
@@ -2213,8 +2230,211 @@ export async function processUniversalQuery(prompt, context = {}) {
   }
 
   // =========================================================================
+  // 0C. ACCESSORY SOFTWARE SQL DATABASE INTELLIGENCE (Different DB Credentials)
+  // Tables: weight_capture, issue_logs, materials, zip, doori, scans
+  // =========================================================================
+  const isWeightCaptureQuery = /\b(weight\s*capture|weight\s*machine|kanta|tulai|gross\s*weight|net\s*weight|tare\s*weight|weight\s*per\s*piece|wt\/pc|vajan|wazan|sample\s*weight)\b/i.test(lower);
+  const isIssueLogsQuery = /\b(issue\s*logs?|accessory\s*issue|materials?\s*issued?|re-?issue|return\s*materials?|kisne\s*issue\s*kiya|issue\s*history)\b/i.test(lower);
+  const isMaterialsStockQuery = /\b(materials?\s*stock|accessory\s*stock|accessory\s*inventory|low\s*stock\s*materials?|threshold\s*alert|trims?\s*stock|button\s*stock|zip\s*stock|dori\s*stock|materials?\s*list|godown\s*stock)\b/i.test(lower);
+  const isAccessoryDbStatusQuery = /\b(accessory\s*software|accessory\s*(?:sql\s*)?database|accessory\s*db|another\s*sql|secondary\s*sql|newdata\s*(?:db|database)?)\b/i.test(lower) && /\b(status|connected|link|linked|check|details|credentials)\b/i.test(lower);
+  const isGeneralAccessoryForLot = mentionsLot && /\b(accessory|accessories|trims?|weight|tulai|kanta|issue\s*log|material|materials|zip|dori|button)\b/i.test(lower);
+
+  if (isWeightCaptureQuery || isIssueLogsQuery || isMaterialsStockQuery || isAccessoryDbStatusQuery || isGeneralAccessoryForLot) {
+    const targetLot = mentionsLot ? mentionsLot[1].trim() : null;
+
+    // Subcase 1: Specific Lot inquiry for Accessory Software data (Weight Capture, Issue Logs, Trims, Materials)
+    if (targetLot) {
+      const accessoryReport = await getCompleteAccessoryReportForLot(targetLot);
+      const { metrics, weightRecords, issueLogs, zips, doris } = accessoryReport;
+
+      if (accessoryReport.hasData) {
+        let responseMd = `### 🧵 Accessory & Material Intelligence for Lot #${targetLot}\n\n`;
+
+        // Metrics Summary Banner
+        responseMd += `* ⚖️ **Weight Capture Status:** ${metrics.weightEntriesCount > 0 ? `**${metrics.weightEntriesCount} Entry Logged** (${metrics.totalVerifiedWeightKg} kg Net / ${metrics.totalVerifiedPieces} Verified Pieces)` : '_No weight captured on machine_'}\n`;
+        responseMd += `* 📦 **Issue Logs:** **${metrics.issueLogsCount} Logged Entries**\n`;
+        responseMd += `* ⛓️ **Trim Orders:** **${metrics.zipOrdersCount} Zip Records** • **${metrics.doriOrdersCount} Dori Records**\n`;
+        if (metrics.isAllApproved) {
+          responseMd += `* 🛡️ **Quality Approval:** **✅ 100% Quality Approved**\n`;
+        }
+        responseMd += `\n---\n\n`;
+
+        // 1. Weight Records Table (if any or if specifically asked)
+        if (weightRecords.length > 0) {
+          responseMd += formatWeightRecordsToMarkdown(weightRecords, targetLot) + '\n\n';
+        }
+
+        // 2. Issue Logs Table (if any or if specifically asked)
+        if (issueLogs.length > 0) {
+          responseMd += formatIssueLogsToMarkdown(issueLogs, targetLot) + '\n\n';
+        }
+
+        // 3. Trim Orders (Zip & Dori)
+        if (zips.length > 0 || doris.length > 0) {
+          responseMd += `### ✂️ Trim Allocations (Zip & Dori) for Lot #${targetLot}\n\n`;
+          if (zips.length > 0) {
+            responseMd += `| Trim | Placements | Zip Selections | Total Cost | Supplier | Entry Date |\n|---|---|---|---|---|---|\n`;
+            zips.forEach(z => {
+              responseMd += `| **Zip** | ${z.Selected_Placements || '-'} | ${z.Zip_Selections || '-'} | ₹${z.Total_Cost || 0} | ${z.Supplier_Name || '-'} | ${z.Material_Entry_Date || z.Issue_Date || '-'} |\n`;
+            });
+            responseMd += `\n`;
+          }
+          if (doris.length > 0) {
+            responseMd += `| Trim | Placements | Dori Selections | Total Cost | Supplier | Entry Date |\n|---|---|---|---|---|---|\n`;
+            doris.forEach(d => {
+              responseMd += `| **Dori** | ${d.Selected_Placements || '-'} | ${d.Dori_Selections || '-'} | ₹${d.Total_Cost || 0} | ${d.Supplier_Name || '-'} | ${d.Material_Entry_Date || d.Issue_Date || '-'} |\n`;
+            });
+            responseMd += `\n`;
+          }
+        }
+
+        const sysPrompt = `You are PulseBot AI, the intelligent manufacturing and operations assistant for Factory Suite Pro.
+The user is asking about the accessory software data (weight capture, issue logs, materials, trims) for Lot ${targetLot}.
+Present the verified metrics from the secondary Accessory SQL Database with executive clarity.
+Data:
+- Lot Number: ${targetLot}
+- Total Weight Verified: ${metrics.totalVerifiedWeightKg} kg
+- Total Pieces on Scale: ${metrics.totalVerifiedPieces} pcs
+- Total Packets: ${metrics.totalPackets}
+- Weight Capture Records Count: ${metrics.weightEntriesCount}
+- Issue Logs Count: ${metrics.issueLogsCount}
+- Zip & Dori Records: ${metrics.zipOrdersCount} zip, ${metrics.doriOrdersCount} dori
+- All Approved: ${metrics.isAllApproved ? 'Yes' : 'Pending'}
+
+Directives:
+1. Deliver a clean, structured executive response with markdown tables.
+2. Maintain professional tone.
+3. User did NOT ask for PDF. Do not mention downloading PDF.`;
+
+        const aiAnswer = await generateAiResponseWithGemini({
+          prompt: p,
+          systemInstruction: sysPrompt,
+          fallbackText: responseMd,
+          conversationHistory
+        });
+
+        return { handled: true, answer: aiAnswer };
+      } else {
+        const emptyMd = `### ℹ️ Accessory Records for Lot #${targetLot}\n\n` +
+          `Accessory SQL Database (having separate credentials) mein Lot **#${targetLot}** ke liye abhi koi **Weight Capture**, **Issue Logs**, ya **Trim Records** darj nahi hain.\n\n` +
+          `* ⚖️ **Weight Machine:** No gross/tare weigh-in captured yet for Lot ${targetLot}\n` +
+          `* 📦 **Issue Logs:** No material issues logged\n` +
+          `* 🧵 **Trims:** No custom zip/dori allocated\n\n` +
+          `💡 *Aap accessory software se is lot ka weight capture ya material issue complete kar sakte hain, aur PulseBot AI real-time me use reflect karega!*`;
+
+        return { handled: true, answer: emptyMd };
+      }
+    }
+
+    // Subcase 2: General Weight Capture inquiries (Recent or Summary)
+    if (isWeightCaptureQuery) {
+      const summary = await getWeightCaptureSummary();
+      const recent = await getRecentWeightCaptures(15);
+
+      let md = `### ⚖️ Accessory Software: Weight Verification Intelligence\n\n`;
+      if (summary) {
+        md += `* 📊 **Total Captured Entries:** **${summary.totalEntries || 0} Records**\n`;
+        md += `* 📦 **Distinct Lots Verified:** **${summary.distinctLots || 0} Lots**\n`;
+        md += `* ⚖️ **Total Net Weight Captured:** **${summary.totalNetKg || 0} kg** *(Gross: ${summary.totalGrossKg || 0} kg)*\n`;
+        md += `* 🔢 **Total Verified Pieces:** **${Number(summary.totalPieces || 0).toLocaleString()} Pcs** across **${summary.totalPackets || 0} Packets**\n`;
+        md += `* ✅ **Quality Approvals:** **${summary.approvedCount || 0} Approved** • **${summary.pendingCount || 0} Pending**\n\n---\n\n`;
+      }
+
+      md += formatWeightRecordsToMarkdown(recent, '');
+
+      const sysPrompt = `You are PulseBot AI. Provide an executive summary of weight verification records from the accessory SQL software.
+Directives:
+1. Explain total entries, total net weight (kg), verified pieces, and list recent weigh-ins in markdown table.
+2. Maintain clean markdown format.
+3. User did NOT ask for PDF.`;
+
+      const aiAnswer = await generateAiResponseWithGemini({
+        prompt: p,
+        systemInstruction: sysPrompt,
+        fallbackText: md,
+        conversationHistory
+      });
+
+      return { handled: true, answer: aiAnswer };
+    }
+
+    // Subcase 3: General Issue Logs inquiries
+    if (isIssueLogsQuery) {
+      const recentLogs = await getRecentIssueLogs(15);
+      const md = formatIssueLogsToMarkdown(recentLogs, '');
+
+      const sysPrompt = `You are PulseBot AI. Provide the latest accessory issue logs from the accessory SQL software.
+List the recent materials issued, person name, category, and date in clean markdown.`;
+
+      const aiAnswer = await generateAiResponseWithGemini({
+        prompt: p,
+        systemInstruction: sysPrompt,
+        fallbackText: md,
+        conversationHistory
+      });
+
+      return { handled: true, answer: aiAnswer };
+    }
+
+    // Subcase 4: Materials Stock / Inventory Inquiry
+    if (isMaterialsStockQuery) {
+      const isLowStock = /\b(low\s*stock|threshold|alert|warning)\b/i.test(lower);
+      let materials = [];
+      let title = 'Accessory Materials & Stock Inventory';
+
+      if (isLowStock) {
+        materials = await getLowStockMaterials();
+        title = 'Low Stock & Threshold Alert Materials';
+      } else {
+        const matMatch = lower.match(/\b(button|zip|zipper|dori|tape|elastic|label|thread|velcro|tag|poly)\b/i);
+        if (matMatch) {
+          materials = await searchMaterialsByNameOrCode(matMatch[1]);
+          title = `Accessory Materials matching "${matMatch[1]}"`;
+        } else {
+          materials = await getMaterialsInventory({ limit: 30 });
+        }
+      }
+
+      const md = formatMaterialsToMarkdown(materials, title);
+      const sysPrompt = `You are PulseBot AI. Provide a clean breakdown of accessory materials inventory from the secondary SQL database.
+Highlight exact stock numbers, units, locations, and low stock threshold warnings.`;
+
+      const aiAnswer = await generateAiResponseWithGemini({
+        prompt: p,
+        systemInstruction: sysPrompt,
+        fallbackText: md,
+        conversationHistory
+      });
+
+      return { handled: true, answer: aiAnswer };
+    }
+
+    // Subcase 5: Accessory Database Connection Status Inquiry
+    if (isAccessoryDbStatusQuery) {
+      const dbStatus = getAccessoryDbStatus();
+      const connected = isAccessoryConnected();
+      const fallback = `### 🔌 Secondary SQL Database Connection Status\n\n` +
+        `* 🌐 **Accessory Software Database:** **${dbStatus.database}**\n` +
+        `* 🖥️ **Host / Server:** \`${dbStatus.host}:${dbStatus.port}\` (User: \`${dbStatus.user}\`)\n` +
+        `* ⚡ **Connection State:** **${connected ? '🟢 CONNECTED & LIVE' : '🔴 DISCONNECTED / FALLBACK'}**\n\n` +
+        `#### 📊 Synchronized Accessory Tables & Live Row Counts:\n\n` +
+        `| Table Name | Description | Live Records |\n` +
+        `| :--- | :--- | :--- |\n` +
+        `| \`weight_capture\` | Weight machine capture (gross/tare/net wt, pieces, barcode) | **${dbStatus.tableCounts?.weight_capture || 0} Rows** |\n` +
+        `| \`materials\` | Accessory inventory, current stock, threshold, location | **${dbStatus.tableCounts?.materials || 0} Rows** |\n` +
+        `| \`issue_logs\` | Accessory issuance, re-issue, return, receiver name | **${dbStatus.tableCounts?.issue_logs || 0} Rows** |\n` +
+        `| \`zip\` | Zipper placement, quality inspection, po numbers | **${dbStatus.tableCounts?.zip || 0} Rows** |\n` +
+        `| \`dori_issue\` / \`doori\` | Dori specifications, placement, requirements | **${dbStatus.tableCounts?.dori || 0} Rows** |\n\n` +
+        `PulseBot AI can instantly query accessory stock, weight verification, and issue logs for any Lot or Material!`;
+
+      return { handled: true, answer: fallback };
+    }
+  }
+
+  // =========================================================================
   // 1. LINKED SHEETS REGISTRY & MULTI-SHEET STATUS INQUIRY
   // =========================================================================
+
   if (!mentionsLot && /\b(linked\s*sheets|connected\s*sheets|sheets\s*list|konsi\s*sheets|which\s*sheets|all\s*sheets|list\s*sheets|sheet\s*status)\b/i.test(lower)) {
     const summary = sheets?.linkedSheetsSummary || [];
     let fallback = `**Factory Suite Pro mein total ${summary.length || 8} Google Sheets kamyabi se linked hain (100% Read-Only Mode):**\n\n`;

@@ -15,7 +15,12 @@ import {
   generatePartyPdf,
   proxyImage,
   getAiContextForN8n,
-  delegateAiTask
+  delegateAiTask,
+  getAccessoryStatus,
+  getAccessoryLotReport,
+  getAccessoryWeightCaptures,
+  getAccessoryIssueLogs,
+  getAccessoryMaterials
 } from '../controllers/chatController.js';
 
 const router = express.Router();
@@ -43,10 +48,19 @@ router.get('/image-proxy', proxyImage);
 router.post('/ai-context', getAiContextForN8n);
 router.get('/ai-context', getAiContextForN8n);
 
+// Secondary Accessory Software SQL Database Integration Routes
+router.get('/accessory-status', getAccessoryStatus);
+router.get('/accessory/status', getAccessoryStatus);
+router.get('/accessory/lot/:lotNo', getAccessoryLotReport);
+router.get('/accessory/weight-capture', getAccessoryWeightCaptures);
+router.get('/accessory/issue-logs', getAccessoryIssueLogs);
+router.get('/accessory/materials', getAccessoryMaterials);
+
 // n8n AI Assistant Integration
 router.post('/ai-assistant', askAiAssistant);
 router.post('/delegate-task', delegateAiTask);
 router.get('/status', getAiStatus);
 
 export default router;
+
 

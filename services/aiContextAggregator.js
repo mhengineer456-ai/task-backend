@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { query, isConnected } from '../config/db.js';
+import { accessoryQuery, isAccessoryConnected } from '../config/accessoryDb.js';
+import { getCompleteAccessoryReportForLot } from './accessoryQueryService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -139,7 +141,7 @@ export function getCachedSheetsData(forceRefresh = false) {
 }
 
 /**
- * Loads and caches live SQL Accessory Data (materials, zip, doori from newdata) with 30s in-memory TTL
+ * Loads and caches live SQL Accessory Data (materials, zip, doori from accessory database) with 30s in-memory TTL
  */
 export async function getCachedSqlAccessoryData(forceRefresh = false) {
   const now = Date.now();
@@ -148,17 +150,23 @@ export async function getCachedSqlAccessoryData(forceRefresh = false) {
   }
 
   try {
-    const materials = await query(
-      'SELECT id, name, category, stock, unit, cost, threshold, color, packets, poNumber, invoiceNo, location FROM newdata.materials ORDER BY category ASC, stock DESC'
+    const materials = await accessoryQuery(
+      'SELECT id, name, category, stock, unit, cost, threshold, color, packets, poNumber, invoiceNo, location FROM materials ORDER BY category ASC, stock DESC'
     ).catch(() => []);
 
-    const zips = await query(
-      'SELECT id, Lot_Number, Garment_Type, Style, Fabric, Total_Pieces, Issue_Date, Supervisor, Priority, Selected_Placements, Placement_Quantities, Placement_Zip_Types, Zip_Selections, Zip_Quality_Data, Total_Cost, Saved_At, Gate_Entry_Person, Gate_Entry_Date, Material_Received_By, Material_Received_Date, Supplier_Name, Material_Entry_Date, po_number FROM newdata.zip ORDER BY id DESC'
+    const zips = await accessoryQuery(
+      'SELECT id, Lot_Number, Garment_Type, Style, Fabric, Total_Pieces, Issue_Date, Supervisor, Priority, Selected_Placements, Placement_Quantities, Placement_Zip_Types, Zip_Selections, Zip_Quality_Data, Total_Cost, Saved_At, Gate_Entry_Person, Gate_Entry_Date, Material_Received_By, Material_Received_Date, Supplier_Name, Material_Entry_Date, po_number FROM zip ORDER BY id DESC'
     ).catch(() => []);
 
-    const dooris = await query(
-      'SELECT id, Lot_Number, Garment_Type, Style, Fabric, Total_Pieces, Issue_Date, Supervisor, Dori_Selections, Selected_Placements, Placement_Quantities, Placement_Dori_Types, Total_Cost, Color_Breakdown, Dori_Requirements, Gate_Entry_Person, Gate_Entry_Date, Material_Received_By, Material_Received_Date, Supplier_Name, Material_Entry_Date, po_number FROM newdata.doori ORDER BY id DESC'
+    let dooris = await accessoryQuery(
+      'SELECT id, Lot_Number, Garment_Type, Style, Fabric, Total_Pieces, Issue_Date, Supervisor, Dori_Selections, Selected_Placements, Placement_Quantities, Placement_Dori_Types, Total_Cost, Color_Breakdown, Dori_Requirements, Gate_Entry_Person, Gate_Entry_Date, Material_Received_By, Material_Received_Date, Supplier_Name, Material_Entry_Date, po_number FROM doori ORDER BY id DESC'
     ).catch(() => []);
+
+    if (!dooris || dooris.length === 0) {
+      dooris = await accessoryQuery(
+        'SELECT id, Lot_Number, Garment_Type, Style, Fabric, Total_Pieces, Issue_Date, Supervisor, Dori_Selections, Selected_Placements, Placement_Quantities, Placement_Dori_Types, Total_Cost, Color_Breakdown, Dori_Requirements, Gate_Entry_Person, Gate_Entry_Date, Material_Received_By, Material_Received_Date, Supplier_Name, Material_Entry_Date, NULL as po_number FROM dori_issue ORDER BY id DESC'
+      ).catch(() => []);
+    }
 
     const lotZips = new Map();
     (zips || []).forEach(r => {
@@ -190,6 +198,7 @@ export async function getCachedSqlAccessoryData(forceRefresh = false) {
     return cachedSqlData;
   }
 }
+
 
 /**
  * High-performance AI context builder with Multi-Sheet + Live SQL Accessory ERP Intelligence

@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { config } from './config/config.js';
 import { initDatabase, isConnected } from './config/db.js';
+import { initAccessoryDatabase } from './config/accessoryDb.js';
 import { requestLogger } from './middleware/logger.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { initSocket } from './socket.js';
@@ -71,6 +72,7 @@ app.use(errorHandler);
 // Initialize Database & Start Express + Socket Server
 async function startServer() {
   await initDatabase();
+  await initAccessoryDatabase().catch(e => console.warn('Accessory DB boot notice:', e.message));
 
   // Start automatic read-only Google Sheets background sync (every 20 min)
   startAutoSyncSchedule(20);
