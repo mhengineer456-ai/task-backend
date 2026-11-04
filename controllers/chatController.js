@@ -8,12 +8,7 @@ import {
   broadcastReaction,
   broadcastChannelCreated,
   broadcastTaskCreated,
-  broadcastNotification,
-  broadcastAiStreamStart,
-  broadcastAiStreamChunk,
-  broadcastAiStreamEnd,
-  broadcastAiStreamError,
-  activeAiGenerations
+  broadcastNotification
 } from '../socket.js';
 import { logService } from '../services/logService.js';
 import { generateJobOrderPdf, generatePartyReportPdf } from '../services/pdfService.js';
@@ -914,22 +909,6 @@ export const askAiAssistant = async (req, res) => {
       return res.status(400).json({ success: false, error: 'Message or image is required' });
     }
 
-    const messageId = `msg-ai-${Date.now()}`;
-    const abortController = new AbortController();
-    activeAiGenerations.set(messageId, { abortController, channelId: targetChannelId });
-
-    // Notify channel of stream start
-    broadcastAiStreamStart(targetChannelId, {
-      messageId,
-      channelId: targetChannelId,
-      prompt: userPrompt,
-      senderId: 'pulse-bot',
-      senderName: 'PulseBot AI (Gemini)',
-      senderAvatar: '🤖',
-      isAi: true,
-      timestamp: new Date().toISOString()
-    });
-
     let aiReplyText = '';
     let isN8nConnected = false;
     let pdfAttachment = null;
@@ -937,16 +916,6 @@ export const askAiAssistant = async (req, res) => {
     let imageGallery = null;
     let trackingData = null;
     let delegatedTask = null;
-
-    const onStreamChunk = (chunk, fullText) => {
-      aiReplyText = fullText;
-      broadcastAiStreamChunk(targetChannelId, {
-        messageId,
-        channelId: targetChannelId,
-        chunk,
-        fullText
-      });
-    };
 
     // Check for Task Delegation to tagged user
     const delegationResult = await processAiTaskDelegation({
@@ -961,7 +930,6 @@ export const askAiAssistant = async (req, res) => {
       aiReplyText = delegationResult.answer;
       delegatedTask = delegationResult.delegatedTask;
       isN8nConnected = true;
-      onStreamChunk(aiReplyText, aiReplyText);
     } else {
       // 1. Fetch recent messages in channel to provide context and history
       let recentMessages = [];
@@ -977,16 +945,9 @@ export const askAiAssistant = async (req, res) => {
         }));
       }
 
-      // 2. Run query through our Universal AI Query Engine with streaming chunk callback and abort signal
-      const engineResult = await processUniversalQuery(userPrompt, {
-        channelId: targetChannelId,
-        userId,
-        recentMessages,
-        conversationHistory,
-        imageUrl: finalImageUrl,
-        onChunk: onStreamChunk,
-        abortSignal: abortController.signal
-      }).catch(e => {
+      // 2. Run query through our Universal AI Query Engine
+      // Handles ALL types of questions: OCR Lot extraction, Specific lots, Parties/Buyers, Categories, Fabrics, Vendors, Overview, Database Tasks & KPIs
+      const engineResult = await processUniversalQuery(userPrompt, { channelId: targetChannelId, userId, recentMessages, conversationHistory, imageUrl: finalImageUrl }).catch(e => {
         console.warn('Universal Query Engine notice:', e.message);
         return { handled: false };
       });
@@ -1122,8 +1083,7 @@ export const askAiAssistant = async (req, res) => {
     }
   }
 
-    activeAiGenerations.delete(messageId);
-
+    const messageId = `msg-ai-${Date.now()}`;
     const timestamp = new Date().toISOString();
 
     if (isConnected()) {
@@ -1183,13 +1143,6 @@ export const askAiAssistant = async (req, res) => {
       delegatedTask
     };
 
-    // Emit stream end with final message
-    broadcastAiStreamEnd(targetChannelId, {
-      messageId,
-      channelId: targetChannelId,
-      finalMessage: aiMessage
-    });
-
     // Broadcast AI message in real time to the channel
     broadcastChatMessage(targetChannelId, aiMessage);
 
@@ -1198,14 +1151,6 @@ export const askAiAssistant = async (req, res) => {
       message: aiMessage
     });
   } catch (error) {
-    if (typeof messageId !== 'undefined') {
-      activeAiGenerations.delete(messageId);
-      broadcastAiStreamError(targetChannelId, {
-        messageId,
-        channelId: targetChannelId,
-        error: error.message
-      });
-    }
     console.error('Error in askAiAssistant controller:', error);
     res.status(500).json({ success: false, error: 'AI Assistant service encountered an error' });
   }

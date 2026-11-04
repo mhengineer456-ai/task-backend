@@ -7,9 +7,6 @@ let io = null;
 const activeCalls = new Map(); // callId -> callData
 const userActiveCallMap = new Map(); // userId -> callId
 
-// Active AI Generation Jobs (for cancel/stop generation)
-export const activeAiGenerations = new Map(); // messageId -> { abortController, channelId }
-
 function cleanupCall(callId) {
   if (!callId) return;
   const call = activeCalls.get(callId);
@@ -88,37 +85,6 @@ export function initSocket(httpServer, corsOrigin) {
     // Live typing indicator
     socket.on('chat:typing', ({ channelId, user, isTyping }) => {
       io.emit('chat:typing', { channelId, user, isTyping });
-    });
-
-    // AI Response Stream Stop Generator handler
-    socket.on('chat:stop_generation', ({ messageId, channelId }) => {
-      if (messageId && activeAiGenerations.has(messageId)) {
-        console.log(`🛑 [AI Stream] User stopped generation for message: ${messageId}`);
-        const record = activeAiGenerations.get(messageId);
-        if (record?.abortController) {
-          record.abortController.abort();
-        }
-        activeAiGenerations.delete(messageId);
-        if (channelId) {
-          io.to(`channel:${channelId}`).emit('ai:stream:stopped', { messageId, channelId });
-        }
-        io.emit('ai:stream:stopped', { messageId, channelId });
-      }
-    });
-
-    // ChatGPT-Style Message Feedback (Thumbs Up / Down)
-    socket.on('chat:message_feedback', async ({ messageId, channelId, rating, feedback }) => {
-      if (messageId && isConnected()) {
-        try {
-          await query(
-            `UPDATE chat_messages SET reactions = JSON_SET(COALESCE(reactions, '{}'), '$.feedback', ?) WHERE id = ?`,
-            [JSON.stringify({ rating, feedback, time: new Date().toISOString() }), messageId]
-          ).catch(() => {});
-        } catch (e) {}
-      }
-      if (channelId) {
-        io.to(`channel:${channelId}`).emit('chat:message_feedback', { messageId, channelId, rating, feedback });
-      }
     });
 
     // ====================================================================
@@ -415,58 +381,6 @@ export function broadcastStatusViewed(data) {
 export function broadcastStatusDeleted(statusId) {
   if (io) {
     io.emit('status:deleted', { id: statusId });
-  }
-}
-
-// ====================================================================
-// AI Assistant Response Streaming Broadcast Helpers (ChatGPT-Style)
-// ====================================================================
-
-export function broadcastAiStreamStart(channelId, payload) {
-  if (io) {
-    if (channelId && channelId.startsWith('chan-ai-')) {
-      const targetUserId = channelId.replace('chan-ai-', '');
-      io.to(`channel:${channelId}`).emit('ai:stream:start', payload);
-      io.to(`user:${targetUserId}`).emit('ai:stream:start', payload);
-    } else {
-      io.emit('ai:stream:start', payload);
-    }
-  }
-}
-
-export function broadcastAiStreamChunk(channelId, payload) {
-  if (io) {
-    if (channelId && channelId.startsWith('chan-ai-')) {
-      const targetUserId = channelId.replace('chan-ai-', '');
-      io.to(`channel:${channelId}`).emit('ai:stream:chunk', payload);
-      io.to(`user:${targetUserId}`).emit('ai:stream:chunk', payload);
-    } else {
-      io.emit('ai:stream:chunk', payload);
-    }
-  }
-}
-
-export function broadcastAiStreamEnd(channelId, payload) {
-  if (io) {
-    if (channelId && channelId.startsWith('chan-ai-')) {
-      const targetUserId = channelId.replace('chan-ai-', '');
-      io.to(`channel:${channelId}`).emit('ai:stream:end', payload);
-      io.to(`user:${targetUserId}`).emit('ai:stream:end', payload);
-    } else {
-      io.emit('ai:stream:end', payload);
-    }
-  }
-}
-
-export function broadcastAiStreamError(channelId, payload) {
-  if (io) {
-    if (channelId && channelId.startsWith('chan-ai-')) {
-      const targetUserId = channelId.replace('chan-ai-', '');
-      io.to(`channel:${channelId}`).emit('ai:stream:error', payload);
-      io.to(`user:${targetUserId}`).emit('ai:stream:error', payload);
-    } else {
-      io.emit('ai:stream:error', payload);
-    }
   }
 }
 
