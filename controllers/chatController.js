@@ -38,7 +38,7 @@ export const getChannels = async (req, res) => {
         // High-performance relational query leveraging indexed chat_channel_members join
         rows = await query(`
           SELECT
-            c.id, c.name, c.type, c.description, c.created_by, c.is_private,
+            c.id, c.name, c.type, c.avatar, c.description, c.created_by, c.is_private,
             c.participant_ids, c.last_message_id, c.last_message_at, c.created_at,
             COALESCE(cm.unread_count, 0) as unread_count,
             cm.last_read_message_id, cm.is_muted, cm.is_pinned, cm.is_archived
@@ -286,6 +286,7 @@ export const sendMessage = async (req, res) => {
       audioUrl,
       fileAttachment,
       taskAttachment,
+      replyToMessageId = null,
       isAi
     } = req.body;
 
@@ -295,6 +296,7 @@ export const sendMessage = async (req, res) => {
 
     const messageId = req.body.id || `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
     const timestamp = req.body.timestamp || new Date().toISOString();
+    const resolvedReplyId = replyToMessageId || req.body.reply_to_message_id || null;
 
     // Determine message type
     let messageType = 'text';
@@ -335,6 +337,7 @@ export const sendMessage = async (req, res) => {
       reactions: {},
       taskAttachment: taskAttachment || null,
       taskId,
+      replyToMessageId: resolvedReplyId,
       isAi: !!isAi,
       status: 'sent',
       timestamp
@@ -346,8 +349,8 @@ export const sendMessage = async (req, res) => {
         `INSERT INTO chat_messages (
           id, channel_id, sender_id, sender_name, sender_role, sender_avatar,
           message_type, text, image_url, audio_url, file_attachment, reactions,
-          task_attachment, task_id, is_ai, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          task_attachment, task_id, reply_to_message_id, is_ai, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           messageId,
           channelId,
@@ -363,6 +366,7 @@ export const sendMessage = async (req, res) => {
           JSON.stringify({}),
           taskAttachment ? JSON.stringify(taskAttachment) : null,
           taskId,
+          resolvedReplyId,
           isAi ? 1 : 0,
           'sent'
         ]
@@ -1350,7 +1354,7 @@ res.status(500).json({ success: false, error: 'Could not fetch AI status' });
 };
 export const createGroupChannel = async (req, res) => {
 try {
-const { name, description = '', memberIds = [], creatorId, creatorName } = req.body;
+  const { name, description = '', memberIds = [], creatorId, creatorName, avatar = null } = req.body;
 if (!name || !name.trim()) {
 return res.status(400).json({ success: false, error: 'Group name is required' });
 }
@@ -1367,9 +1371,9 @@ const timestamp = new Date().toISOString();
 if (isConnected()) {
 // 1. Create channel in chat_channels
 await query(
-`INSERT INTO chat_channels (id, name, type, description, created_by, participant_ids, is_private)
-VALUES (?, ?, 'group', ?, ?, ?, 1)`,
-[channelId, name.trim(), description.trim(), creatorId, JSON.stringify(allMemberIds)]
+`INSERT INTO chat_channels (id, name, type, description, created_by, participant_ids, is_private, avatar)
+VALUES (?, ?, 'group', ?, ?, ?, 1, ?)`,
+[channelId, name.trim(), description.trim(), creatorId, JSON.stringify(allMemberIds), avatar || null]
 );
 // 2. Insert member records into chat_channel_members for every person
 for (const uid of allMemberIds) {
@@ -1406,6 +1410,7 @@ const newChannel = {
 id: channelId,
 name: name.trim(),
 type: 'group',
+avatar: avatar || null,
 description: description.trim(),
 createdBy: creatorId,
 participantIds: allMemberIds,

@@ -1,4 +1,5 @@
 import { Server } from 'socket.io';
+import { query, isConnected } from './config/db.js';
 
 let io = null;
 
@@ -41,6 +42,29 @@ export function initSocket(httpServer, corsOrigin) {
         socket.join(`user:${userId}`);
         socket.join('broadcast');
         console.log(`👤 [Socket.IO] User ${userId} joined notification room.`);
+
+        if (isConnected()) {
+          query('UPDATE users SET is_online = 1, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?', [userId]).catch(() => {});
+        }
+        io.emit('user:presence', { userId: String(userId), isOnline: true, lastSeenAt: new Date().toISOString() });
+      }
+    });
+
+    // Message read receipt tracking
+    socket.on('message:read', async ({ messageId, channelId, userId }) => {
+      if (messageId && userId) {
+        if (isConnected()) {
+          const receiptId = `rcpt-${messageId}-${userId}`;
+          await query(
+            `INSERT INTO chat_message_receipts (id, message_id, channel_id, user_id, status, read_at)
+             VALUES (?, ?, ?, ?, 'read', CURRENT_TIMESTAMP)
+             ON DUPLICATE KEY UPDATE status = 'read', read_at = CURRENT_TIMESTAMP`,
+            [receiptId, messageId, channelId || '', userId]
+          ).catch(() => {});
+        }
+        if (channelId) {
+          io.to(`channel:${channelId}`).emit('message:read_receipt', { messageId, channelId, userId, readAt: new Date().toISOString() });
+        }
       }
     });
 
@@ -241,6 +265,11 @@ export function initSocket(httpServer, corsOrigin) {
     socket.on('disconnect', () => {
       console.log(`🔌 [Socket.IO] Client disconnected: ${socket.id} (user: ${socket.userId || 'anonymous'})`);
       if (socket.userId) {
+        if (isConnected()) {
+          query('UPDATE users SET is_online = 0, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?', [socket.userId]).catch(() => {});
+        }
+        io.emit('user:presence', { userId: String(socket.userId), isOnline: false, lastSeenAt: new Date().toISOString() });
+
         const activeCallId = userActiveCallMap.get(String(socket.userId));
         if (activeCallId) {
           const call = activeCalls.get(activeCallId);

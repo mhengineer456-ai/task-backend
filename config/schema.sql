@@ -22,6 +22,10 @@ CREATE TABLE IF NOT EXISTS users (
   status VARCHAR(32) DEFAULT 'Active',
   avatar TEXT,
   hire_date DATE,
+  is_online BOOLEAN DEFAULT FALSE,
+  last_seen_at TIMESTAMP NULL,
+  push_token VARCHAR(255),
+  settings JSON,
   kpi JSON,
   kra_list JSON,
   performance_review JSON,
@@ -29,7 +33,8 @@ CREATE TABLE IF NOT EXISTS users (
   INDEX idx_users_role (role),
   INDEX idx_users_dept (department),
   INDEX idx_users_manager (manager_id),
-  INDEX idx_users_status (status)
+  INDEX idx_users_status (status),
+  INDEX idx_users_presence (is_online, last_seen_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 2. TASKS TABLE (High-performance B-Tree compound indexes)
@@ -102,6 +107,7 @@ CREATE TABLE IF NOT EXISTS chat_channels (
   id VARCHAR(64) PRIMARY KEY,
   name VARCHAR(128) NOT NULL,
   type VARCHAR(32) NOT NULL DEFAULT 'group',
+  avatar TEXT,
   description VARCHAR(255),
   created_by VARCHAR(64),
   participant_ids JSON,
@@ -111,7 +117,8 @@ CREATE TABLE IF NOT EXISTS chat_channels (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_channels_type (type),
-  INDEX idx_channels_last_msg (last_message_at DESC)
+  INDEX idx_channels_last_msg (last_message_at DESC),
+  INDEX idx_channels_created_by (created_by)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 5. CHAT CHANNEL MEMBERS (Participant Grouping & Conditions Table)
@@ -160,7 +167,8 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   deleted_at TIMESTAMP NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_chat_channel_time (channel_id, created_at DESC),
+  INDEX idx_chat_channel_del_time (channel_id, is_deleted, created_at DESC),
+  INDEX idx_chat_reply (reply_to_message_id),
   INDEX idx_chat_sender_time (sender_id, created_at DESC),
   INDEX idx_chat_task (task_id),
   INDEX idx_chat_type (message_type),
@@ -192,7 +200,8 @@ CREATE TABLE IF NOT EXISTS chat_message_receipts (
   delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   read_at TIMESTAMP NULL,
   UNIQUE KEY uk_receipt_msg_user (message_id, user_id),
-  INDEX idx_receipt_channel_user (channel_id, user_id)
+  INDEX idx_receipt_channel_user (channel_id, user_id),
+  INDEX idx_receipt_msg_status (message_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 9. SYSTEM LOGS TABLE (Enterprise Activity, Audit & Performance Logs)

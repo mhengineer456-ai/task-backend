@@ -12,6 +12,10 @@ export const getUsers = async (req, res) => {
         managerName: u.manager_name || u.managerName,
         managerEmail: u.manager_email || u.managerEmail,
         hireDate: u.hire_date || u.hireDate,
+        isOnline: Boolean(u.is_online),
+        lastSeenAt: u.last_seen_at || null,
+        pushToken: u.push_token || null,
+        settings: typeof u.settings === 'string' ? JSON.parse(u.settings || '{}') : (u.settings || {}),
         kpi: typeof u.kpi === 'string' ? JSON.parse(u.kpi || '{}') : (u.kpi || {}),
         kraList: typeof u.kra_list === 'string' ? JSON.parse(u.kra_list || '[]') : (u.kra_list || u.kraList || []),
         performanceReview: typeof u.performance_review === 'string' ? JSON.parse(u.performance_review || '{}') : (u.performance_review || u.performanceReview || {})
@@ -44,6 +48,10 @@ export const getUserById = async (req, res) => {
         managerName: u.manager_name || u.managerName,
         managerEmail: u.manager_email || u.managerEmail,
         hireDate: u.hire_date || u.hireDate,
+        isOnline: Boolean(u.is_online),
+        lastSeenAt: u.last_seen_at || null,
+        pushToken: u.push_token || null,
+        settings: typeof u.settings === 'string' ? JSON.parse(u.settings || '{}') : (u.settings || {}),
         kpi: typeof u.kpi === 'string' ? JSON.parse(u.kpi || '{}') : (u.kpi || {}),
         kraList: typeof u.kra_list === 'string' ? JSON.parse(u.kra_list || '[]') : (u.kra_list || u.kraList || []),
         performanceReview: typeof u.performance_review === 'string' ? JSON.parse(u.performance_review || '{}') : (u.performance_review || u.performanceReview || {})
@@ -76,6 +84,15 @@ export const updateUserProfile = async (req, res) => {
       if (updates.name) {
         await query('UPDATE users SET name = ? WHERE id = ?', [updates.name, id]);
       }
+      if (updates.pushToken !== undefined) {
+        await query('UPDATE users SET push_token = ? WHERE id = ?', [updates.pushToken, id]);
+      }
+      if (updates.settings !== undefined) {
+        await query('UPDATE users SET settings = ? WHERE id = ?', [JSON.stringify(updates.settings), id]);
+      }
+      if (updates.isOnline !== undefined) {
+        await query('UPDATE users SET is_online = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?', [updates.isOnline ? 1 : 0, id]);
+      }
       if (updates.kpi) {
         await query('UPDATE users SET kpi = ? WHERE id = ?', [JSON.stringify(updates.kpi), id]);
       }
@@ -96,6 +113,10 @@ export const updateUserProfile = async (req, res) => {
           managerName: u.manager_name || u.managerName,
           managerEmail: u.manager_email || u.managerEmail,
           hireDate: u.hire_date || u.hireDate,
+          isOnline: Boolean(u.is_online),
+          lastSeenAt: u.last_seen_at || null,
+          pushToken: u.push_token || null,
+          settings: typeof u.settings === 'string' ? JSON.parse(u.settings || '{}') : (u.settings || {}),
           kpi: typeof u.kpi === 'string' ? JSON.parse(u.kpi || '{}') : (u.kpi || {}),
           kraList: typeof u.kra_list === 'string' ? JSON.parse(u.kra_list || '[]') : (u.kra_list || u.kraList || []),
           performanceReview: typeof u.performance_review === 'string' ? JSON.parse(u.performance_review || '{}') : (u.performance_review || u.performanceReview || {})

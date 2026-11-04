@@ -110,6 +110,22 @@ async function runAutoMigrations(dbPool) {
     if (!pwdCol || pwdCol.length === 0) {
       await dbPool.query("ALTER TABLE users ADD COLUMN password VARCHAR(255) DEFAULT NULL");
     }
+    const [onlineCol] = await dbPool.query("SHOW COLUMNS FROM users LIKE 'is_online'");
+    if (!onlineCol || onlineCol.length === 0) {
+      await dbPool.query("ALTER TABLE users ADD COLUMN is_online BOOLEAN DEFAULT FALSE");
+    }
+    const [lastSeenCol] = await dbPool.query("SHOW COLUMNS FROM users LIKE 'last_seen_at'");
+    if (!lastSeenCol || lastSeenCol.length === 0) {
+      await dbPool.query("ALTER TABLE users ADD COLUMN last_seen_at TIMESTAMP NULL");
+    }
+    const [pushCol] = await dbPool.query("SHOW COLUMNS FROM users LIKE 'push_token'");
+    if (!pushCol || pushCol.length === 0) {
+      await dbPool.query("ALTER TABLE users ADD COLUMN push_token VARCHAR(255) NULL");
+    }
+    const [settCol] = await dbPool.query("SHOW COLUMNS FROM users LIKE 'settings'");
+    if (!settCol || settCol.length === 0) {
+      await dbPool.query("ALTER TABLE users ADD COLUMN settings JSON NULL");
+    }
 
     // --- Tasks Table Checks ---
     const [progCol] = await dbPool.query("SHOW COLUMNS FROM tasks LIKE 'progress'");
@@ -122,6 +138,10 @@ async function runAutoMigrations(dbPool) {
     }
 
     // --- Chat Channels Table Checks ---
+    const [avatarCol] = await dbPool.query("SHOW COLUMNS FROM chat_channels LIKE 'avatar'");
+    if (!avatarCol || avatarCol.length === 0) {
+      await dbPool.query("ALTER TABLE chat_channels ADD COLUMN avatar TEXT NULL");
+    }
     const [lastMsgCol] = await dbPool.query("SHOW COLUMNS FROM chat_channels LIKE 'last_message_id'");
     if (!lastMsgCol || lastMsgCol.length === 0) {
       await dbPool.query("ALTER TABLE chat_channels ADD COLUMN last_message_id VARCHAR(64) NULL");
@@ -159,6 +179,10 @@ async function runAutoMigrations(dbPool) {
     const [delCol] = await dbPool.query("SHOW COLUMNS FROM chat_messages LIKE 'is_deleted'");
     if (!delCol || delCol.length === 0) {
       await dbPool.query("ALTER TABLE chat_messages ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE");
+    }
+    const [delAtCol] = await dbPool.query("SHOW COLUMNS FROM chat_messages LIKE 'deleted_at'");
+    if (!delAtCol || delAtCol.length === 0) {
+      await dbPool.query("ALTER TABLE chat_messages ADD COLUMN deleted_at TIMESTAMP NULL");
     }
 
     // --- Backfill & Sync Chat Channel Members ---
