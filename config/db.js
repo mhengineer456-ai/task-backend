@@ -190,10 +190,31 @@ async function runAutoMigrations(dbPool) {
     const [allUsers] = await dbPool.query("SELECT id FROM users");
     const userIds = (allUsers || []).map(u => u.id);
 
-    for (const channel of (channels || [])) {
+    // Ensure every user has their own private PulseBot AI channel
+    for (const uid of userIds) {
+      const aiChanId = `chan-ai-${uid}`;
+      await dbPool.query(
+        `INSERT INTO chat_channels (id, name, type, description, created_by, participant_ids, is_private)
+         VALUES (?, '🤖 PulseBot AI Assistant', 'ai', 'Private AI Assistant Copilot powered by Gemini 2.5', ?, ?, 1)
+         ON DUPLICATE KEY UPDATE name = '🤖 PulseBot AI Assistant', type = 'ai', is_private = 1`,
+        [aiChanId, uid, JSON.stringify([uid])]
+      ).catch(() => {});
+      await dbPool.query(
+        `INSERT INTO chat_channel_members (id, channel_id, user_id, role, unread_count)
+         VALUES (?, ?, ?, 'owner', 0)
+         ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP`,
+        [`mem-${aiChanId}-${uid}`, aiChanId, uid]
+      ).catch(() => {});
+    }
+
+    const [freshChannels] = await dbPool.query("SELECT * FROM chat_channels");
+
+    for (const channel of (freshChannels || [])) {
       let memberIds = [];
       if (channel.type === 'general' || channel.id === 'chan-general') {
         memberIds = userIds;
+      } else if (channel.id.startsWith('chan-ai-')) {
+        memberIds = [channel.created_by || channel.id.replace('chan-ai-', '')];
       } else if (channel.type === 'ai' || channel.id === 'chan-ai') {
         memberIds = userIds;
       } else {

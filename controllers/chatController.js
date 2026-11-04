@@ -35,7 +35,22 @@ export const getChannels = async (req, res) => {
       let rows = [];
 
       if (userId) {
-        // High-performance relational query leveraging indexed chat_channel_members join
+        const userAiChannelId = `chan-ai-${userId}`;
+        // Auto-provision user's private AI channel if missing
+        await query(
+          `INSERT INTO chat_channels (id, name, type, description, created_by, participant_ids, is_private)
+           VALUES (?, '🤖 PulseBot AI Assistant', 'ai', 'Private AI Assistant Copilot powered by Gemini 2.5', ?, ?, 1)
+           ON DUPLICATE KEY UPDATE name = '🤖 PulseBot AI Assistant', type = 'ai', is_private = 1`,
+          [userAiChannelId, userId, JSON.stringify([userId])]
+        ).catch(() => {});
+        await query(
+          `INSERT INTO chat_channel_members (id, channel_id, user_id, role, unread_count)
+           VALUES (?, ?, ?, 'owner', 0)
+           ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP`,
+          [`mem-${userAiChannelId}-${userId}`, userAiChannelId, userId]
+        ).catch(() => {});
+
+        // High-performance relational query: return public channels, member channels, and user's own AI channel
         rows = await query(`
           SELECT
             c.id, c.name, c.type, c.avatar, c.description, c.created_by, c.is_private,
@@ -44,11 +59,13 @@ export const getChannels = async (req, res) => {
             cm.last_read_message_id, cm.is_muted, cm.is_pinned, cm.is_archived
           FROM chat_channels c
           LEFT JOIN chat_channel_members cm ON c.id = cm.channel_id AND cm.user_id = ?
-          WHERE c.is_private = 0 OR cm.user_id = ? OR c.id = 'chan-ai' OR c.id = 'chan-general'
+          WHERE (c.is_private = 0 OR cm.user_id = ? OR c.id = ? OR c.id = 'chan-general')
+            AND c.id != 'chan-ai'
+            AND (c.type != 'ai' OR c.id = ?)
           ORDER BY COALESCE(cm.is_pinned, 0) DESC, COALESCE(c.last_message_at, c.created_at) DESC
-        `, [userId, userId]);
+        `, [userId, userId, userAiChannelId, userAiChannelId]);
       } else {
-        rows = await query('SELECT * FROM chat_channels ORDER BY created_at ASC');
+        rows = await query("SELECT * FROM chat_channels WHERE id != 'chan-ai' ORDER BY created_at ASC");
       }
 
       let allUsers = [];
@@ -120,6 +137,11 @@ export const getMessagesByChannel = async (req, res) => {
 
     const parsedLimit = Math.min(Math.max(Number(limit) || 30, 5), 100);
 
+    let targetChannelId = channelId;
+    if (channelId === 'chan-ai' && userId) {
+      targetChannelId = `chan-ai-${userId}`;
+    }
+
     if (isConnected()) {
       let rows = [];
       let hasMore = false;
@@ -135,7 +157,7 @@ export const getMessagesByChannel = async (req, res) => {
           ORDER BY m.created_at DESC
           LIMIT ?
         `;
-        const pagedRows = await query(innerSql, [channelId, before, parsedLimit]);
+        const pagedRows = await query(innerSql, [targetChannelId, before, parsedLimit]);
         // Reverse to chronological order (oldest to newest)
         rows = pagedRows.reverse();
       } else if (targetDays !== null && targetDays > 0) {
@@ -149,7 +171,7 @@ export const getMessagesByChannel = async (req, res) => {
           ORDER BY m.created_at ASC
           LIMIT 150
         `;
-        rows = await query(daysSql, [channelId, targetDays]);
+        rows = await query(daysSql, [targetChannelId, targetDays]);
 
         // Fallback: If last 3 days has fewer than 15 messages (e.g. inactive or fresh chat),
         // fetch the latest parsedLimit messages so the user always sees recent context!
@@ -164,7 +186,7 @@ export const getMessagesByChannel = async (req, res) => {
               LIMIT ?
             ) AS sub ORDER BY sub.created_at ASC
           `;
-          rows = await query(fallbackSql, [channelId, parsedLimit]);
+          rows = await query(fallbackSql, [targetChannelId, parsedLimit]);
         }
       } else {
         // Standard limit query
@@ -178,7 +200,7 @@ export const getMessagesByChannel = async (req, res) => {
             LIMIT ?
           ) AS sub ORDER BY sub.created_at ASC
         `;
-        rows = await query(sql, [channelId, parsedLimit]);
+        rows = await query(sql, [targetChannelId, parsedLimit]);
       }
 
       // Check if there are older messages available before the oldest message returned
@@ -186,7 +208,7 @@ export const getMessagesByChannel = async (req, res) => {
       if (oldestDate) {
         const [olderCheck] = await query(
           'SELECT 1 FROM chat_messages WHERE channel_id = ? AND created_at < ? LIMIT 1',
-          [channelId, oldestDate]
+          [targetChannelId, oldestDate]
         );
         hasMore = Boolean(olderCheck);
       }
@@ -195,7 +217,7 @@ export const getMessagesByChannel = async (req, res) => {
       if (userId) {
         await query(
           'UPDATE chat_channel_members SET unread_count = 0, last_read_at = CURRENT_TIMESTAMP WHERE channel_id = ? AND user_id = ?',
-          [channelId, userId]
+          [targetChannelId, userId]
         ).catch(() => {});
       }
 
@@ -297,6 +319,7 @@ export const sendMessage = async (req, res) => {
     const messageId = req.body.id || `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
     const timestamp = req.body.timestamp || new Date().toISOString();
     const resolvedReplyId = replyToMessageId || req.body.reply_to_message_id || null;
+    const resolvedChannelId = (channelId === 'chan-ai' && senderId) ? `chan-ai-${senderId}` : channelId;
 
     // Determine message type
     let messageType = 'text';
@@ -324,7 +347,7 @@ export const sendMessage = async (req, res) => {
 
     const createdMessage = {
       id: messageId,
-      channelId,
+      channelId: resolvedChannelId,
       senderId,
       senderName: senderName || 'User',
       senderRole: senderRole || 'Employee',
@@ -353,7 +376,7 @@ export const sendMessage = async (req, res) => {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           messageId,
-          channelId,
+          resolvedChannelId,
           senderId,
           senderName || 'User',
           senderRole || 'Employee',
@@ -375,22 +398,22 @@ export const sendMessage = async (req, res) => {
       // 2. Update channel last_message metadata
       await query(
         'UPDATE chat_channels SET last_message_id = ?, last_message_at = CURRENT_TIMESTAMP WHERE id = ?',
-        [messageId, channelId]
+        [messageId, resolvedChannelId]
       ).catch(() => {});
 
       // 3. Update unread_count for other channel members
       await query(
         'UPDATE chat_channel_members SET unread_count = unread_count + 1 WHERE channel_id = ? AND user_id != ?',
-        [channelId, senderId]
+        [resolvedChannelId, senderId]
       ).catch(() => {});
 
       // 4. Ensure sender is registered in chat_channel_members and has unread_count = 0
-      const memberKey = `mem-${channelId}-${senderId}`;
+      const memberKey = `mem-${resolvedChannelId}-${senderId}`;
       await query(
         `INSERT INTO chat_channel_members (id, channel_id, user_id, role, unread_count, last_read_message_id, last_read_at)
          VALUES (?, ?, ?, 'member', 0, ?, CURRENT_TIMESTAMP)
          ON DUPLICATE KEY UPDATE unread_count = 0, last_read_message_id = ?, last_read_at = CURRENT_TIMESTAMP`,
-        [memberKey, channelId, senderId, messageId, messageId]
+        [memberKey, resolvedChannelId, senderId, messageId, messageId]
       ).catch(() => {});
 
       // 5. Enterprise system log entry
@@ -400,12 +423,12 @@ export const sendMessage = async (req, res) => {
         userRole: senderRole,
         entityType: 'chat_message',
         entityId: messageId,
-        details: { channelId, messageType, hasAttachment: !!fileAttachment || !!imageUrl, taskId }
+        details: { channelId: resolvedChannelId, messageType, hasAttachment: !!fileAttachment || !!imageUrl, taskId }
       }).catch(() => {});
     }
 
     // Broadcast in real-time to channel and global activity
-    broadcastChatMessage(channelId, createdMessage);
+    broadcastChatMessage(resolvedChannelId, createdMessage);
 
     return res.status(201).json({
       success: true,
@@ -854,6 +877,7 @@ export const askAiAssistant = async (req, res) => {
       requireEaFollowup = false
     } = req.body;
     let finalImageUrl = imageUrl || image || dataUrl || null;
+    const targetChannelId = (channelId === 'chan-ai' || !channelId) && userId ? `chan-ai-${userId}` : channelId;
 
     const rawMsg = (message || '').trim();
     const isGreeting = /^(hlo|hello|helo|hi|hey|hlw|namaste|namaskar|ram\s*ram|radhe\s*radhe|sat\s*sri\s*akal|sasriakal|adaab|salam|good\s*(morning|afternoon|evening)|kaise\s*ho|sup)(\s*(ji|sir|bhai|mam|madam))?$/i.test(rawMsg);
@@ -866,7 +890,7 @@ export const askAiAssistant = async (req, res) => {
       try {
         const recentImg = await query(
           'SELECT image_url, created_at FROM chat_messages WHERE channel_id = ? AND is_ai = 0 AND image_url IS NOT NULL ORDER BY created_at DESC LIMIT 1',
-          [channelId]
+          [targetChannelId]
         );
         if (recentImg && recentImg.length > 0 && recentImg[0].image_url) {
           const imgAgeMs = Date.now() - new Date(recentImg[0].created_at).getTime();
@@ -899,7 +923,7 @@ export const askAiAssistant = async (req, res) => {
       taggedUserId,
       requireEaFollowup,
       userId,
-      channelId
+      channelId: targetChannelId
     });
 
     if (delegationResult && delegationResult.handled) {
@@ -913,7 +937,7 @@ export const askAiAssistant = async (req, res) => {
       if (isConnected()) {
         recentMessages = await query(
           'SELECT sender_name, is_ai, text FROM chat_messages WHERE channel_id = ? ORDER BY created_at DESC LIMIT 8',
-          [channelId]
+          [targetChannelId]
         ).catch(() => []);
         conversationHistory = [...recentMessages].reverse().map(m => ({
           role: m.is_ai ? 'assistant' : 'user',
@@ -923,7 +947,7 @@ export const askAiAssistant = async (req, res) => {
 
       // 2. Run query through our Universal AI Query Engine
       // Handles ALL types of questions: OCR Lot extraction, Specific lots, Parties/Buyers, Categories, Fabrics, Vendors, Overview, Database Tasks & KPIs
-      const engineResult = await processUniversalQuery(userPrompt, { channelId, userId, recentMessages, conversationHistory, imageUrl: finalImageUrl }).catch(e => {
+      const engineResult = await processUniversalQuery(userPrompt, { channelId: targetChannelId, userId, recentMessages, conversationHistory, imageUrl: finalImageUrl }).catch(e => {
         console.warn('Universal Query Engine notice:', e.message);
         return { handled: false };
       });
@@ -1076,7 +1100,7 @@ export const askAiAssistant = async (req, res) => {
          VALUES (?, ?, ?, ?, ?, ?, 'text', ?, ?, ?)`,
         [
           messageId,
-          channelId,
+          targetChannelId,
           'pulse-bot',
           'PulseBot AI (Gemini)',
           'AI Assistant',
@@ -1089,20 +1113,20 @@ export const askAiAssistant = async (req, res) => {
 
       await query(
         'UPDATE chat_channels SET last_message_id = ?, last_message_at = CURRENT_TIMESTAMP WHERE id = ?',
-        [messageId, channelId]
+        [messageId, targetChannelId]
       ).catch(() => {});
 
       logService.info('AI', 'AI_REPLY_GENERATED', {
         userId,
         entityType: 'chat_message',
         entityId: messageId,
-        details: { channelId, isN8nConnected, hasPdf: Boolean(pdfAttachment), hasImage: Boolean(imageAttachment), hasGallery: Boolean(imageGallery), hasTracking: Boolean(trackingData), hasDelegatedTask: Boolean(delegatedTask) }
+        details: { channelId: targetChannelId, isN8nConnected, hasPdf: Boolean(pdfAttachment), hasImage: Boolean(imageAttachment), hasGallery: Boolean(imageGallery), hasTracking: Boolean(trackingData), hasDelegatedTask: Boolean(delegatedTask) }
       }).catch(() => {});
     }
 
     const aiMessage = {
       id: messageId,
-      channelId,
+      channelId: targetChannelId,
       senderId: 'pulse-bot',
       senderName: 'PulseBot AI (Gemini)',
       senderRole: 'AI Assistant',
@@ -1120,7 +1144,7 @@ export const askAiAssistant = async (req, res) => {
     };
 
     // Broadcast AI message in real time to the channel
-    broadcastChatMessage(channelId, aiMessage);
+    broadcastChatMessage(targetChannelId, aiMessage);
 
     return res.json({
       success: true,

@@ -321,8 +321,15 @@ export function broadcastFollowupAdded(taskId, followup, progress) {
 
 export function broadcastChatMessage(channelId, message) {
   if (io) {
-    io.emit('chat:message', message);
-    io.emit('chat:activity', { channelId, message });
+    if (channelId && channelId.startsWith('chan-ai-')) {
+      const targetUserId = channelId.replace('chan-ai-', '');
+      io.to(`channel:${channelId}`).emit('chat:message', message);
+      io.to(`user:${targetUserId}`).emit('chat:message', message);
+      io.to(`user:${targetUserId}`).emit('chat:activity', { channelId, message });
+    } else {
+      io.emit('chat:message', message);
+      io.emit('chat:activity', { channelId, message });
+    }
   }
 }
 
