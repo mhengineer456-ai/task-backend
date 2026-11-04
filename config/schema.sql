@@ -385,6 +385,85 @@ CREATE TABLE IF NOT EXISTS call_logs (
   INDEX idx_call_receiver (receiver_id, created_at DESC),
   INDEX idx_call_channel (channel_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+-- 20. REMINDERS TABLE
+CREATE TABLE IF NOT EXISTS reminders (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  user_name VARCHAR(128),
+  title VARCHAR(255) NOT NULL,
+  notes TEXT,
+  due_date VARCHAR(32) NOT NULL,
+  due_time VARCHAR(16) DEFAULT '09:00',
+  priority VARCHAR(32) DEFAULT 'Normal',
+  status VARCHAR(32) DEFAULT 'Pending',
+  task_id VARCHAR(64) NULL,
+  task_title VARCHAR(255) NULL,
+  repeat_cycle VARCHAR(32) DEFAULT 'none',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_reminders_user_status (user_id, status),
+  INDEX idx_reminders_due (due_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+-- 21. TIME LOGS TABLE (Task Work Tracking)
+CREATE TABLE IF NOT EXISTS time_logs (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  user_name VARCHAR(128) NOT NULL,
+  task_id VARCHAR(64) NOT NULL,
+  task_title VARCHAR(255) NOT NULL,
+  duration_minutes INT NOT NULL DEFAULT 0,
+  hours DECIMAL(6,2) DEFAULT 0.00,
+  date DATE NOT NULL,
+  start_time VARCHAR(32),
+  end_time VARCHAR(32),
+  notes TEXT,
+  is_billable BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_timelogs_user (user_id, date DESC),
+  INDEX idx_timelogs_task (task_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+-- 22. DOCUMENTS TABLE (Collaborative & Team Docs)
+CREATE TABLE IF NOT EXISTS documents (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  author_name VARCHAR(128) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  content LONGTEXT,
+  category VARCHAR(128) DEFAULT 'General',
+  department VARCHAR(128) DEFAULT 'All',
+  tags JSON,
+  visibility VARCHAR(32) DEFAULT 'workspace',
+  is_pinned BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_docs_user (user_id),
+  INDEX idx_docs_cat (category)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+-- 23. PERSONAL NOTES TABLE (Scratchpad & Ideas)
+CREATE TABLE IF NOT EXISTS notes (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  content TEXT,
+  color VARCHAR(32) DEFAULT '#fef08a',
+  checklist JSON,
+  is_pinned BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_notes_user (user_id, is_pinned DESC, updated_at DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- 24. CUSTOM LISTS TABLE (Checklists & Workflow Lists)
+CREATE TABLE IF NOT EXISTS custom_lists (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  name VARCHAR(128) NOT NULL,
+  color VARCHAR(32) DEFAULT '#6366f1',
+  icon VARCHAR(64) DEFAULT 'list',
+  description VARCHAR(255),
+  items JSON,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_lists_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

@@ -17,6 +17,7 @@ import statusRoutes from './routes/statusRoutes.js';
 import logRoutes from './routes/logRoutes.js';
 import sheetRoutes from './routes/sheetRoutes.js';
 import callRoutes from './routes/callRoutes.js';
+import workspaceRoutes from './routes/workspaceRoutes.js';
 import { startAutoSyncSchedule } from './services/sheetRegistryService.js';
 
 const app = express();
@@ -62,6 +63,7 @@ app.use('/api/statuses', statusRoutes);
 app.use('/api/logs', logRoutes);
 app.use('/api/sheets', sheetRoutes);
 app.use('/api/calls', callRoutes);
+app.use('/api/workspace', workspaceRoutes);
 
 // Error Handling Middleware
 app.use(errorHandler);
