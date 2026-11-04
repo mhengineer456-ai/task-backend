@@ -166,6 +166,18 @@ async function runCallingTests() {
       socketUserA.on('call:ice-candidate', (data) => {
         assert(data.candidate?.candidate !== undefined, 'User A receives call:ice-candidate');
 
+        // Step 8b: Test Screen Sharing Toggle from User A to User B
+        socketUserA.emit('call:screenshare-toggle', {
+          callId: liveCallId,
+          targetUserId: 'usr-test-b',
+          isSharing: true
+        });
+      });
+
+      // Step 8c: User B receives Screen Sharing Toggle
+      socketUserB.on('call:screenshare-toggle', (data) => {
+        assert(data.callId === liveCallId && data.isSharing === true, 'User B receives call:screenshare-toggle (isSharing: true)');
+
         // Step 9: User A ends call
         socketUserA.emit('call:end', {
           callId: liveCallId,
