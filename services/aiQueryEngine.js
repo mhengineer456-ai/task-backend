@@ -2530,6 +2530,7 @@ List the recent materials issued, person name, category, and date in clean markd
         imageAttachment = {
           url: topImg.imageUrl,
           title: `${topImg.name} (${topImg.category || 'Accessory'})`,
+          category: topImg.category || 'Accessory',
           caption: `Stock: ${Number(topImg.stock || 0).toLocaleString()} ${topImg.unit || 'Pcs'} | Location: ${topImg.location || 'Godown'}`
         };
 
@@ -2537,6 +2538,7 @@ List the recent materials issued, person name, category, and date in clean markd
           imageGallery = itemsWithImg.slice(0, 6).map(m => ({
             url: m.imageUrl,
             title: `${m.name} (${m.category || 'Accessory'})`,
+            category: m.category || 'Accessory',
             garment: m.category || 'Accessory',
             caption: `Stock: ${Number(m.stock || 0).toLocaleString()} ${m.unit || 'Pcs'} | Location: ${m.location || 'Godown'}`
           }));
@@ -2557,12 +2559,12 @@ The user is asking ONLY about raw accessory materials, trims stock, or godown ra
 Answer clearly and warmly in natural Hindi / Hinglish / English matching the user.
 
 VERIFIED ACCESSORY SQL DATA (DATABASE: railway.materials):
-${materials.map(m => `• Item: ${m.name} | Category: ${m.category} | Stock: ${m.stock} ${m.unit} (${m.packets || 1} Pkts) | Location: ${m.location} | Photo URL: ${m.imageUrl || 'None'}`).join('\n')}
+${materials.map(m => `• Item: ${m.name} | Category: ${m.category} | Stock: ${m.stock} ${m.unit} (${m.packets || 1} Pkts) | Location: ${m.location}`).join('\n')}
 
 STRICT DIRECTIVES:
 1. DO NOT mention, list, or include ANY garment cutting lots, job orders, master orders, or garment manufacturing orders under ANY circumstance. The user asked ONLY for accessory inventory.
 2. Focus strictly on the accessory materials: Item name, category (Labels, Tags, Patch, etc.), exact stock quantity, packets, and godown rack location (e.g. ${materials[0]?.location || 'Main Store'}).
-3. If photo is requested or available, include the exact Cloudinary markdown image: ![Name](url). NEVER write blank photo tags like "**Photo:** **" or placeholder URLs.
+3. CRITICAL RULE - NEVER OUTPUT ANY URL: DO NOT write raw URLs, http links, or Cloudinary URLs (e.g. https://res.cloudinary.com/...) in your text response. The system will automatically display the verified high-resolution photos in the visual image card and gallery below your response.
 4. Keep the response crisp, accurate, helpful, and professional.
 5. User did NOT ask for PDF. Do not mention PDF.`;
 
@@ -2578,21 +2580,15 @@ STRICT DIRECTIVES:
         aiAnswer = aiAnswer.replace(/\n+\*?\*?(?:Important Note|Important Production Context|Production Context|Related Garment Manufacturing|Garment Production).*?(?:job orders|production lots|cut orders).*$/si, '');
         // 2. Clean up any empty photo bullets Gemini might have rendered like "**Photo:** **" or "**Photo:**"
         aiAnswer = aiAnswer.replace(/\*\*Photo:\*\*\s*(?:\*\*)?/gi, '');
-      }
-
-      // 3. Ensure real Cloudinary URLs are present if Gemini used a placeholder
-      if (itemsWithImg.length > 0 && aiAnswer) {
-        if (/res\.cloudinary\.com\/demo\//i.test(aiAnswer)) {
-          // Replace demo placeholder with real Cloudinary URL
-          itemsWithImg.forEach(item => {
-            aiAnswer = aiAnswer.replace(/https:\/\/res\.cloudinary\.com\/demo\/[^\s\)]+/g, item.imageUrl);
-          });
-        }
-        // 4. If user asked for photo or items have images, but Gemini omitted markdown images, inject verified images
-        if (userAskedPhoto && !aiAnswer.includes('![') && !aiAnswer.includes('res.cloudinary.com')) {
-          const photoBlock = itemsWithImg.map(m => `![${m.name} (${m.category || 'Accessory'})](${m.imageUrl})`).join('\n\n');
-          aiAnswer += `\n\n${photoBlock}\n`;
-        }
+        // 3. Remove any broken or multiline markdown images like "• ![AMIRI]\n(https://...)"
+        aiAnswer = aiAnswer.replace(/!\[.*?\]\s*\n*\s*\(https?:\/\/[^\)]+\)/gi, '');
+        // 4. Remove any inline markdown images like "![AMIRI](https://...)"
+        aiAnswer = aiAnswer.replace(/!\[.*?\]\(https?:\/\/[^\)]+\)/gi, '');
+        // 5. Remove any raw or parenthesized image URLs from the text response
+        aiAnswer = aiAnswer.replace(/\(?https?:\/\/res\.cloudinary\.com\/[^\s\)\>]+(?:\)?)/gi, '');
+        // 6. Clean up empty bullets or trailing whitespace
+        aiAnswer = aiAnswer.replace(/^\s*[*•-]\s*$/gm, '');
+        aiAnswer = aiAnswer.replace(/\n{3,}/g, '\n\n').trim();
       }
 
       return {
