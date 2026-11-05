@@ -2244,13 +2244,26 @@ export async function processUniversalQuery(prompt, context = {}) {
   // 0C. ACCESSORY SOFTWARE SQL DATABASE INTELLIGENCE & SOLUTIONS
   // Tables: materials, weight_capture, issue_logs, zip, doori, material_transfers, rgp, scans
   // =========================================================================
+  // Dynamic Smart Search Check: If query asks for stock, brand, or photo of an item, test if it matches materials table
+  let preMatchedMaterials = null;
+  const looksLikeMaterialInquiry = /\b(stock|inventory|godown|rack|location|p(?:a|d)a\s*h|available|kitna|kitne|photo|image|pic|dikhao|btana|batao|brand)\b/i.test(lower) &&
+    !/\b(ss|mohit|db|bb)\s*lots\b/i.test(lower);
+  if (looksLikeMaterialInquiry && !mentionsLot) {
+    try {
+      const candidates = await searchAccessoryMaterialsSmart(p);
+      if (candidates && candidates.length > 0) {
+        preMatchedMaterials = candidates;
+      }
+    } catch (e) {}
+  }
+
   const isWeightCaptureQuery = /\b(weight\s*capture|weight\s*machine|kanta|tulai|gross\s*weight|net\s*weight|tare\s*weight|weight\s*per\s*piece|wt\/pc|vajan|wazan|sample\s*weight|scale)\b/i.test(lower);
   const isIssueLogsQuery = /\b(issue\s*logs?|accessory\s*issue|materials?\s*issued?|re-?issue|return\s*materials?|kisne\s*issue\s*kiya|issue\s*history)\b/i.test(lower);
   const isMaterialsStockQuery = /\b(materials?\s*stock|accessory\s*stock|accessory\s*inventory|low\s*stock|threshold\s*alert|trims?\s*stock|button\s*stock|zip\s*stock|dori\s*stock|materials?\s*list|godown\s*stock|available\s*accessories)\b/i.test(lower);
-  const isMaterialSpecificQuery = (
+  const isMaterialSpecificQuery = !!preMatchedMaterials || (
     /\b(kitna\s*p(?:a|d)a|kitna\s*stock|kitne?\s*(?:pcs|piece|meter|roll|packet|pkt)|stock|inventory|godown|rack|location|available|with\s*photo|photo|image|pic|tasveer|tasvir|dikhao|bhejo|btana)\b/i.test(lower) &&
-    /\b(label|labels|tag|tags|button|buttons|zip|zipper|dori|tape|tapes|patch|patches|polybeg|polybag|elastic|thread|bone|rivet|stopper|cuff|spray|brooks|chanel|zara|h&m|hm|polo|nike|adidas|gap|levis|calvin)\b/i.test(lower)
-  ) || /\b(brooks|chanel|cello\s*tape)\b/i.test(lower);
+    /\b(label|labels|tag|tags|button|buttons|zip|zipper|dori|tape|tapes|patch|patches|polybeg|polybag|elastic|thread|bone|rivet|stopper|cuff|spray|brooks|chanel|zara|h&m|hm|polo|nike|adidas|gap|levis|calvin|amiri)\b/i.test(lower)
+  ) || /\b(brooks|chanel|amiri|cello\s*tape)\b/i.test(lower);
   const isAccessoryDbStatusQuery = /\b(accessory\s*software|accessory\s*(?:sql\s*)?database|accessory\s*db|another\s*sql|secondary\s*sql|newdata\s*(?:db|database)?)\b/i.test(lower) && /\b(status|connected|link|linked|check|details|credentials)\b/i.test(lower);
   const isTransfersQuery = /\b(transfer|transfers|godown\s*transfer|material\s*transfer|rack\s*movement|hall\s*transfer)\b/i.test(lower) || (/\b(transfer|transfers)\b/i.test(lower) && /\b(material|materials?|accessory|accessories)\b/i.test(lower));
   const isRgpQuery = /\b(rgp|gate\s*pass|returnable\s*gate\s*pass|vendor\s*outpass)\b/i.test(lower);
@@ -2486,6 +2499,10 @@ List the recent materials issued, person name, category, and date in clean markd
       if (isLowStock) {
         materials = await getLowStockMaterials();
         title = 'Low Stock & Threshold Alert Materials';
+      } else if (preMatchedMaterials && preMatchedMaterials.length > 0) {
+        materials = preMatchedMaterials;
+        isSpecificSearch = true;
+        title = `Accessory Materials matching "${materials[0]?.brand || materials[0]?.name || 'Item'}"`;
       } else {
         // Try smart multi-token search for items (e.g. "brooks label", "chanel tag", "cello tape")
         materials = await searchAccessoryMaterialsSmart(p);
@@ -2495,6 +2512,21 @@ List the recent materials issued, person name, category, and date in clean markd
         } else {
           // Fallback to generic inventory listing
           materials = await getMaterialsInventory({ limit: 30 });
+        }
+      }
+
+      // Check if there are also production garment lots in sheets for this brand to provide complete clarity
+      let relatedLots = [];
+      const brandToken = (materials[0]?.brand || materials[0]?.name || '').toLowerCase();
+      if (brandToken && brandToken.length >= 3 && sheets?.lotsMap) {
+        for (const [lotNo, lotInfo] of sheets.lotsMap.entries()) {
+          const itemParty = (lotInfo.party || '').toLowerCase();
+          const itemBrand = (lotInfo.brand || '').toLowerCase();
+          const itemGarment = (lotInfo.garment || '').toLowerCase();
+          if (itemParty.includes(brandToken) || itemBrand.includes(brandToken) || itemGarment.includes(brandToken)) {
+            relatedLots.push(lotInfo);
+            if (relatedLots.length >= 7) break;
+          }
         }
       }
 
@@ -2526,25 +2558,43 @@ List the recent materials issued, person name, category, and date in clean markd
         md = formatMaterialsToMarkdown(materials, title);
       }
 
+      if (relatedLots.length > 0 && isSpecificSearch) {
+        md += `\n---\n#### 📋 Related Garment Manufacturing Orders in Factory Pipeline:\n`;
+        relatedLots.forEach(l => {
+          md += `* **Lot #${l.lot}:** ${l.garment || 'Garment'} • **${l.qty || 0} Pcs** (${l.stage || 'In Production'})\n`;
+        });
+      }
+
       const sysPrompt = `You are PulseBot AI, the intelligent garment manufacturing and accessory operations copilot for Factory Suite Pro.
-The user is inquiring about accessory materials, stock levels, or asking for photos.
+The user is inquiring about accessory materials, stock levels, or brand inventory.
 Answer clearly in natural Hindi / Hinglish / English matching the user.
 
-Verified Data from Accessory SQL Database:
-${materials.slice(0, 10).map(m => `- [${m.id}] ${m.name} (${m.category}): Stock ${m.stock} ${m.unit}, Packets: ${m.packets || 1}, Location: ${m.location}, Cost: ₹${m.cost || 0}, Photo: ${m.imageUrl || 'No image'}`).join('\n')}
+VERIFIED ACCESSORY SQL DATA (DATABASE: railway.materials):
+${materials.map(m => `• Item: ${m.name} | Category: ${m.category} | Stock: ${m.stock} ${m.unit} (${m.packets || 1} Pkts) | Location: ${m.location} | Photo URL: ${m.imageUrl || 'None'}`).join('\n')}
 
-Directives:
-1. State the exact stock, number of packets, and physical godown rack location (e.g. Main Store - RACK 37).
-2. If the user asked for photo or if Cloudinary images exist, confirm the photo is displayed and embed it using markdown: ![Item Name](imageUrl).
-3. Be direct, helpful, and courteous.
-4. User did NOT ask for PDF. Do not mention PDF.`;
+STRICT ACCURACY & ANTI-HALLUCINATION RULES:
+1. State the exact stock, category, number of packets, and physical godown rack location (e.g. ${materials[0]?.location || 'Main Store'}).
+2. If Photo URL is provided, use ONLY the exact Cloudinary URL: ![${materials[0]?.name}](${materials[0]?.imageUrl}). NEVER invent, alter, or use demo/sample URLs (e.g. res.cloudinary.com/demo/...).
+${relatedLots.length > 0 ? `3. As an additional helpful note, clarify that these are raw accessory trims (tags, patches, labels, etc.) in stock, and also mention that there are ${relatedLots.length} garment production lots registered in factory Job Orders (${relatedLots.map(l => `Lot ${l.lot}: ${l.garment}`).join(', ')}). This eliminates all confusion between raw accessory trims vs garment cut orders.` : ''}
+4. Be direct, helpful, and courteous.
+5. User did NOT ask for PDF. Do not mention PDF.`;
 
-      const aiAnswer = await generateAiResponseWithGemini({
+      let aiAnswer = await generateAiResponseWithGemini({
         prompt: p,
         systemInstruction: sysPrompt,
         fallbackText: md,
         conversationHistory
       });
+
+      // Ensure real Cloudinary URLs are present if Gemini used a placeholder
+      if (itemsWithImg.length > 0 && aiAnswer) {
+        if (/res\.cloudinary\.com\/demo\//i.test(aiAnswer)) {
+          // Replace demo placeholder with real Cloudinary URL
+          itemsWithImg.forEach(item => {
+            aiAnswer = aiAnswer.replace(/https:\/\/res\.cloudinary\.com\/demo\/[^\s\)]+/g, item.imageUrl);
+          });
+        }
+      }
 
       return {
         handled: true,
