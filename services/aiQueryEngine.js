@@ -2251,15 +2251,37 @@ export async function processUniversalQuery(prompt, context = {}) {
   // 0C. ACCESSORY SOFTWARE SQL DATABASE INTELLIGENCE & SOLUTIONS
   // Tables: materials, weight_capture, issue_logs, zip, doori, material_transfers, rgp, scans
   // =========================================================================
-  // Identify if query is specifically asking about Garment Production, Cutting, Stitching, Packing, or Job Orders
-  const isGarmentProductionQuery = /\b(production|cutting|cut|stitching|stitch|sewing|packing|pack|wip|stage|stages|milestones?|timeline|lifecycle|progress|journey|kahan\s*tak\s*pahuncha|kahan\s*tak\s*pahucha|complete\s*status|completed|pending\s*lots?|active\s*lots?|job\s*orders?|master\s*orders?|fabric|embroidery|sampling|design\s*artwork|artwork)\b/i.test(lower);
+  // Identify if query is asking about cutting / uncut status
+  const cuttingIntent = analyzeCuttingIntent(lower);
 
-  // Dynamic Smart Search Check: If query asks for stock, brand, or photo of an item, test if it matches materials table
+  // Identify if query is asking about a Garment Party's lots or orders (e.g. "SS k uncut lots", "mohit ke pending lots", "db ke kitne lot cut hue")
+  const isPartyOrderQuery = (
+    /\b(ss|mohit|mohit\s*hosiery|db|bb|mh)\b/i.test(lower) &&
+    /\b(lots?|orders?|cut|uncut|uncuts|un-cut|cutting|pending|status|buyer|party|bache|baki|baaki|remaining|report|list|details?|kaun|kitne|kitna)\b/i.test(lower)
+  ) || /\b(ss\s*party|party\s*ss|mohit\s*party|party\s*mohit|db\s*party|bb\s*party|mh\s*party)\b/i.test(lower);
+
+  // Check if query is explicitly asking for accessories/trims
+  const hasExplicitAccessoryTerm = /\b(accessory|accessories|trims?|material|materials|weight|kanta|tulai|scale|issue\s*logs?|issuance|labels?|tags?|buttons?|patches?|doris?|polybegs?|polybags?|elastics?|stoppers?|racks?\s*#?\s*\d+)\b/i.test(lower);
+
+  const isPurePartyProductionQuery = isPartyOrderQuery && !hasExplicitAccessoryTerm;
+
+  // Identify if query is specifically asking about Garment Production, Cutting, Uncut lots, Stitching, Packing, or Job Orders
+  const isGarmentProductionQuery = cuttingIntent.isAskingUncut || cuttingIntent.isAskingCut || (
+    /\b(production|cutting|cut|uncut|uncuts|un-cut|pending\s*cutting|bina\s*cut|bina\s*kate|not\s*cut|nhi\s*cut|nahi\s*cut|katne\s*ba?ki|chhut\s*gaye|stitching|stitch|sewing|packing|pack|wip|stage|stages|milestones?|timeline|lifecycle|progress|journey|kahan\s*tak\s*pahuncha|kahan\s*tak\s*pahucha|complete\s*status|completed|pending\s*lots?|active\s*lots?|bache\s*hue\s*lots?|remaining\s*lots?|job\s*orders?|master\s*orders?|factory\s*status|floor\s*status|orders?\s*status|garments?|fabric|embroidery|sampling|design\s*artwork|artwork)\b/i.test(lower)
+  ) || (
+    mentionsLot && /\b(status|kahan|kaha|pahuncha|pahucha|progress|update|detail|details|report|ka\s*kya\s*hua)\b/i.test(lower)
+  ) || (
+    /\b(parties|party|buyer|buyers)\b/i.test(lower) && /\b(status|list|summary|report|orders?|lots?|all)\b/i.test(lower)
+  ) || (
+    /\b(lots?)\b/i.test(lower) && /\b(status|list|summary|report|kaun|kitne|kitna|show|dikhao|batao|btana|saare|sabhi)\b/i.test(lower)
+  ) || isPurePartyProductionQuery;
+
+  // Dynamic Smart Search Check: If query asks for stock, brand, or photo of an accessory item, test if it matches materials table
   let preMatchedMaterials = null;
-  const looksLikeMaterialInquiry = (
-    /\b(stock|inventory|godown|rack|location|p(?:a|d)a\s*h|available|kitna|kitne|photo|image|pic|dikhao|bhejo|btana|batao|brand)\b/i.test(lower) ||
+  const looksLikeMaterialInquiry = !isPurePartyProductionQuery && !isGarmentProductionQuery && !/\b(fabric\s*only|kapda\s*only)\b/i.test(lower) && (
+    /\b(stock|inventory|godown|rack|location|p(?:a|d)a\s*h|available|raw\s*materials?)\b/i.test(lower) ||
     /\b(label|labels|tag|tags|button|buttons|zip|zipper|dori|tape|tapes|patch|patches|polybeg|polybag|elastic|thread|bone|rivet|stopper|cuff)\b/i.test(lower)
-  ) && !/\b(ss|mohit|db|bb)\s*lots\b/i.test(lower) && !/\b(fabric\s*only|kapda\s*only)\b/i.test(lower) && !isGarmentProductionQuery;
+  );
   if (looksLikeMaterialInquiry && !mentionsLot) {
     try {
       const candidates = await searchAccessoryMaterialsSmart(p);
@@ -2282,12 +2304,12 @@ export async function processUniversalQuery(prompt, context = {}) {
     (/\b(who|which\s*lot|what)\b/i.test(lower) && /\b(issued?|dispatch|allotted?)\b/i.test(lower))
   );
   const isLowStockQuery = !isIssueLogsQuery && /\b(low\s*stock|kam\s*stock|stock\s*kam|kiska\s*stock\s*kam|shortage|kami\s*hai|khatam|reorder|threshold\s*alert|warning|deficit|kam\s*pad\s*gaya|kam\s*pda)\b/i.test(lower);
-  const isMaterialsStockQuery = !isIssueLogsQuery && !isGarmentProductionQuery && (
+  const isMaterialsStockQuery = !isIssueLogsQuery && !isGarmentProductionQuery && !isPurePartyProductionQuery && (
     isLowStockQuery ||
     /\b(materials?\s*stock|accessory\s*stock|accessory\s*inventory|trims?\s*stock|button\s*stock|zip\s*stock|dori\s*stock|materials?\s*list|godown\s*stock|available\s*accessories)\b/i.test(lower) ||
     (/\b(stock|inventory|godown|rack|store|karkhana)\b/i.test(lower) && /\b(dikhao|batao|btana|btao|check|detail|status|report|kya\s*hai|kya\s*h|me\s*kya)\b/i.test(lower))
   );
-  const isMaterialSpecificQuery = !isIssueLogsQuery && (
+  const isMaterialSpecificQuery = !isIssueLogsQuery && !isGarmentProductionQuery && !isPurePartyProductionQuery && (
     !!preMatchedMaterials ||
     (/\b(kitna\s*p(?:a|d)a|kitna\s*bacha|kitne\s*bache|kitni\s*bachi|kitna\s*stock|kitne?\s*(?:pcs|piece|meter|roll|packet|pkt)|stock|inventory|godown|rack|location|available|with\s*photo|photo|image|pic|tasveer|tasvir|dikhao|bhejo|btana|batao)\b/i.test(lower) &&
      /\b(label|labels|tag|tags|button|buttons|zip|zipper|dori|tape|tapes|patch|patches|polybeg|polybag|elastic|thread|bone|rivet|stopper|cuff|spray|brooks|chanel|zara|h&m|hm|polo|nike|adidas|gap|levis|calvin|amiri|diesel|coach|carhartt|loropiane)\b/i.test(lower)) ||
@@ -2301,9 +2323,7 @@ export async function processUniversalQuery(prompt, context = {}) {
   const isGeneralAccessoryForLot = mentionsLot && /\b(accessory|accessories|trims?|weight|tulai|kanta|gross\s*weight|net\s*weight|issue\s*log|material|materials|zip|dori|button)\b/i.test(lower);
   const isBroadAccessoryQuery = /\b(accessor(?:y|ies)|trims?|materials?\s*storage|accessory\s*storage|accessory\s*sql)\b/i.test(lower) && !/\b(fabric\s*only)\b/i.test(lower);
 
-  const hasExplicitAccessoryTerm = /\b(accessory|accessories|trims?|material|materials|weight|kanta|tulai|scale|issue\s*logs?|issuance|labels?|tags?|buttons?|patches?|doris?|polybegs?|polybags?|elastics?|stoppers?|racks?\s*#?\s*\d+)\b/i.test(lower);
-
-  const shouldRunAccessoryEngine = (
+  const shouldRunAccessoryEngine = !isPurePartyProductionQuery && (
     isIssueLogsQuery ||
     isWeightCaptureQuery ||
     isTransfersQuery ||

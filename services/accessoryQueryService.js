@@ -323,9 +323,16 @@ export async function searchAccessoryMaterialsSmart(queryStr, options = {}) {
     'godown', 'rack', 'location', 'maal', 'saman', 'kya', 'rakha', 'rakhe', 'rakhi', 'kaha', 'kahan', 'kuch', 'koi',
     'tag', 'tags', 'label', 'labels', 'patch', 'patches', 'button', 'buttons',
     'tape', 'tapes', 'dori', 'doori', 'bone', 'polybeg', 'polybag', 'beg', 'elastic', 'stopper', 'spray', 'trims', 'accessory', 'accessories',
-    'store', 'warehouse', 'factory', 'floor', 'room', 'karkhana', 'karkhane', 'konsa', 'konse', 'konsi', 'abhi', 'abtak', 'abhitak', 'aaj', 'kal', 'parso'
+    'store', 'warehouse', 'factory', 'floor', 'room', 'karkhana', 'karkhane', 'konsa', 'konse', 'konsi', 'abhi', 'abtak', 'abhitak', 'aaj', 'kal', 'parso',
+    'uncut', 'un-cut', 'cut', 'cutting', 'lots', 'lot', 'order', 'orders', 'pending', 'party', 'buyer', 'bina', 'kate', 'kahan', 'tak', 'pahuncha', 'pahucha'
   ]);
-  const brandTokens = lower.replace(/[^a-z0-9\s_-]/g, ' ').split(/\s+/).filter(t => t.length >= 2 && !stopWords.has(t));
+  const hasCategory = (isTag || isLabel || isPatch || isButton || isTape || isDori || isBone || isPolybag || isElastic || isStopper || isSpray || isRivet || isPasting || isInner || isCuff || isEyelet || isFashionPatti || isWashal);
+  const partyAcronyms = new Set(['ss', 'db', 'bb', 'mh']);
+  const brandTokens = lower.replace(/[^a-z0-9\s_-]/g, ' ').split(/\s+/).filter(t => {
+    if (t.length < 2 || stopWords.has(t)) return false;
+    if (partyAcronyms.has(t) && !hasCategory) return false;
+    return true;
+  });
 
   try {
     // Case A.0: Specific Godown Rack inquiry (e.g. "rack 54 me kya hai", "rack 92", "rack no 1")
