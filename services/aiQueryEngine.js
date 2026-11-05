@@ -2570,19 +2570,19 @@ VERIFIED ACCESSORY SQL DATA SUMMARY (DATABASE: railway.materials):
 • Total Packets: ${Number(totalPacketsSum).toLocaleString()} Packets
 • Verified Cloudinary Photos: ${itemsWithImg.length} photos loaded in the interactive gallery below
 
-${isBroadCategory ? `TOP HIGH-STOCK ITEMS:
-${topMaterials.map((m, idx) => `${idx + 1}. Item: ${m.name} | Category: ${m.category} | Stock: ${Number(m.stock).toLocaleString()} ${m.unit || 'Pcs'} (${m.packets || 1} Pkts) | Location: ${m.location}`).join('\n')}
-(Plus ${materials.length - topMaterials.length} additional items registered in this category)` : `ITEMS:
+${isBroadCategory ? `CRITICAL DIRECTIVE FOR COMPLETE INVENTORY LIST:
+- Greet warmly and state the Grand Total Stock (${Number(totalStockSum).toLocaleString()} units across ${materials.length} items and ${Number(totalPacketsSum).toLocaleString()} packets) prominently.
+- Note that the complete verified inventory table of all ${materials.length} items with serial numbers, codes, exact stock, packets, and godown rack locations is displayed below.
+- Note that all ${itemsWithImg.length} verified item photos are loaded in the interactive gallery below.
+- DO NOT attempt to write 65 bullet points one by one in text (the complete table is appended automatically).` : `ITEMS:
 ${materials.map(m => `• Item: ${m.name} | Category: ${m.category} | Stock: ${Number(m.stock).toLocaleString()} ${m.unit || 'Pcs'} (${m.packets || 1} Pkts) | Location: ${m.location}`).join('\n')}`}
 
 STRICT DIRECTIVES:
 1. MANDATORY: Prominently state the GRAND TOTAL STOCK (${Number(totalStockSum).toLocaleString()} units across ${materials.length} items and ${Number(totalPacketsSum).toLocaleString()} packets) in the opening lines.
-2. Present the ${isBroadCategory ? 'top high-stock items' : 'items'} with their exact stock, packets, and godown rack locations.
-3. Mention that ALL ${itemsWithImg.length} verified item photos are loaded in the interactive photo gallery below for full-screen inspection and search.
-4. DO NOT mention or include ANY garment cutting lots, job orders, master orders, or garment manufacturing data under ANY circumstance.
-5. NEVER print raw URLs or Cloudinary links in your text response.
-6. Keep the response crisp, accurate, helpful, and professional.
-7. User did NOT ask for PDF. Do not mention PDF.`;
+2. DO NOT mention or include ANY garment cutting lots, job orders, master orders, or garment manufacturing data under ANY circumstance.
+3. NEVER print raw URLs or Cloudinary links in your text response.
+4. Keep the response crisp, accurate, helpful, and professional.
+5. User did NOT ask for PDF. Do not mention PDF.`;
 
       let aiAnswer = await generateAiResponseWithGemini({
         prompt: p,
@@ -2605,6 +2605,20 @@ STRICT DIRECTIVES:
         // 6. Clean up empty bullets or trailing whitespace
         aiAnswer = aiAnswer.replace(/^\s*[*•-]\s*$/gm, '');
         aiAnswer = aiAnswer.replace(/\n{3,}/g, '\n\n').trim();
+      }
+
+      // If broad category query, ensure the complete verified inventory table (with all rows) is included!
+      if (isBroadCategory && md) {
+        if (aiAnswer) {
+          // Strip any partial tables or numbered item lists Gemini might have hallucinated/truncated
+          aiAnswer = aiAnswer.replace(/\|[\s\S]*?\|/g, '').trim();
+          aiAnswer = aiAnswer.replace(/(?:^|\n)\d+\.\s*Item:[\s\S]*?(?=\n\n|$)/gi, '').trim();
+          aiAnswer = aiAnswer.replace(/\n{3,}/g, '\n\n').trim();
+        }
+        // Always attach the 100% verified, complete SQL inventory table with all items
+        aiAnswer = aiAnswer ? `${aiAnswer}\n\n${md}` : md;
+      } else if (!aiAnswer) {
+        aiAnswer = md;
       }
 
       return {

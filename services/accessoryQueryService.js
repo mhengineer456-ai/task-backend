@@ -624,12 +624,12 @@ export function formatMaterialDetailCardToMarkdown(items, searchTerm = '', userA
     return `*Accessory SQL Database mein "${searchTerm || 'Item'}" ke naam ya category se koi material nahi mila.*`;
   }
 
-  const titleName = items[0]?.brand || items[0]?.name || searchTerm || 'Material';
+  const titleName = searchTerm || items[0]?.category || items[0]?.brand || items[0]?.name || 'Material';
   const totalStockSum = items.reduce((acc, m) => acc + (Number(m.stock) || 0), 0);
   const totalPacketsSum = items.reduce((acc, m) => acc + (Number(m.packets) || 0), 0);
   const itemsWithImages = items.filter(m => m.imageUrl && m.imageUrl.trim());
 
-  let md = `### 🧵 Verified Accessory Stock: **${titleName}**\n\n`;
+  let md = `### 🏷️ Verified Accessory Stock: **${titleName}**\n\n`;
   md += `* 📦 **Total Registered Items:** **${items.length} items**\n`;
   md += `* 🔢 **Grand Total Stock:** **${Number(totalStockSum).toLocaleString()} units** (Across **${totalPacketsSum.toLocaleString()} Packets**)\n`;
   if (itemsWithImages.length > 0) {
@@ -638,19 +638,17 @@ export function formatMaterialDetailCardToMarkdown(items, searchTerm = '', userA
     md += `\n`;
   }
 
-  md += `| Code | Item Name | Category | Current Stock | Packets | Godown Location | Unit Cost | PO / Invoice |\n`;
-  md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+  md += `| # | Code | Item Name | Category | Current Stock | Packets | Godown Rack Location |\n`;
+  md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
 
-  const displayLimit = Math.min(items.length, 20);
-  items.slice(0, displayLimit).forEach(m => {
+  const displayLimit = Math.min(items.length, 120);
+  items.slice(0, displayLimit).forEach((m, idx) => {
     const code = m.id ? `\`${m.id}\`` : '-';
     const isLow = Number(m.stock || 0) <= Number(m.threshold || 0);
     const stockDisplay = isLow ? `⚠️ 🔴 **${Number(m.stock || 0).toLocaleString()} ${m.unit || 'Pcs'}** (Low)` : `🟢 **${Number(m.stock || 0).toLocaleString()} ${m.unit || 'Pcs'}**`;
     const loc = m.location || 'Main Store';
-    const cost = Number(m.cost || 0) > 0 ? `₹${m.cost}` : '₹0.00';
-    const po = m.poNumber || m.invoiceNo || '-';
 
-    md += `| ${code} | **${m.name}** | **${m.category || 'Accessory'}** | ${stockDisplay} | **${m.packets || 1} Pkts** | 📍 \`${loc}\` | ${cost} | #${po} |\n`;
+    md += `| ${idx + 1} | ${code} | **${m.name}** | ${m.category || 'Accessory'} | ${stockDisplay} | **${m.packets || 1} Pkts** | 📍 \`${loc}\` |\n`;
   });
 
   if (items.length > displayLimit) {
