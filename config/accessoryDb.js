@@ -30,6 +30,39 @@ export async function initAccessoryDatabase() {
   if (primaryCfg && primaryCfg.database) {
     const { isFallback, ...rest } = primaryCfg;
     configsToTry.push({ poolConfig: rest, isFallback: false });
+
+    // If configured with internal Railway hostname but running outside Railway, add public proxy
+    if (primaryCfg.host === 'mysql.railway.internal') {
+      configsToTry.push({
+        poolConfig: {
+          ...rest,
+          host: 'monorail.proxy.rlwy.net',
+          port: 43485
+        },
+        isFallback: false
+      });
+    }
+  }
+
+  // Also include the verified public Railway database as high-priority fallback
+  const isAlreadyRailwayPublic = primaryCfg && primaryCfg.host === 'monorail.proxy.rlwy.net';
+  if (!isAlreadyRailwayPublic) {
+    configsToTry.push({
+      poolConfig: {
+        host: 'monorail.proxy.rlwy.net',
+        port: 43485,
+        user: 'root',
+        password: process.env.ACCESSORY_DB_PASSWORD || 'CSqIYNzEXEUZqwelyqaTvUtNjKZGYPBF',
+        database: 'railway',
+        waitForConnections: true,
+        connectionLimit: 25,
+        queueLimit: 0,
+        connectTimeout: 8000,
+        enableKeepAlive: true,
+        keepAliveInitialDelay: 10000
+      },
+      isFallback: true
+    });
   }
 
   // Add local fallback configuration pointing to 'newdata' if not identical

@@ -12,6 +12,7 @@ import {
   getRecentIssueLogs,
   getMaterialsInventory,
   searchMaterialsByNameOrCode,
+  searchAccessoryMaterialsSmart,
   getLowStockMaterials,
   getTrimsByLot,
   getMaterialTransfers,
@@ -22,6 +23,7 @@ import {
   formatWeightRecordsToMarkdown,
   formatIssueLogsToMarkdown,
   formatMaterialsToMarkdown,
+  formatMaterialDetailCardToMarkdown,
   formatLowStockToMarkdown,
   formatMaterialTransfersToMarkdown,
   formatRgpToMarkdown,
@@ -2245,6 +2247,10 @@ export async function processUniversalQuery(prompt, context = {}) {
   const isWeightCaptureQuery = /\b(weight\s*capture|weight\s*machine|kanta|tulai|gross\s*weight|net\s*weight|tare\s*weight|weight\s*per\s*piece|wt\/pc|vajan|wazan|sample\s*weight|scale)\b/i.test(lower);
   const isIssueLogsQuery = /\b(issue\s*logs?|accessory\s*issue|materials?\s*issued?|re-?issue|return\s*materials?|kisne\s*issue\s*kiya|issue\s*history)\b/i.test(lower);
   const isMaterialsStockQuery = /\b(materials?\s*stock|accessory\s*stock|accessory\s*inventory|low\s*stock|threshold\s*alert|trims?\s*stock|button\s*stock|zip\s*stock|dori\s*stock|materials?\s*list|godown\s*stock|available\s*accessories)\b/i.test(lower);
+  const isMaterialSpecificQuery = (
+    /\b(kitna\s*p(?:a|d)a|kitna\s*stock|kitne?\s*(?:pcs|piece|meter|roll|packet|pkt)|stock|inventory|godown|rack|location|available|with\s*photo|photo|image|pic|tasveer|tasvir|dikhao|bhejo|btana)\b/i.test(lower) &&
+    /\b(label|labels|tag|tags|button|buttons|zip|zipper|dori|tape|tapes|patch|patches|polybeg|polybag|elastic|thread|bone|rivet|stopper|cuff|spray|brooks|chanel|zara|h&m|hm|polo|nike|adidas|gap|levis|calvin)\b/i.test(lower)
+  ) || /\b(brooks|chanel|cello\s*tape)\b/i.test(lower);
   const isAccessoryDbStatusQuery = /\b(accessory\s*software|accessory\s*(?:sql\s*)?database|accessory\s*db|another\s*sql|secondary\s*sql|newdata\s*(?:db|database)?)\b/i.test(lower) && /\b(status|connected|link|linked|check|details|credentials)\b/i.test(lower);
   const isTransfersQuery = /\b(transfer|transfers|godown\s*transfer|material\s*transfer|rack\s*movement|hall\s*transfer)\b/i.test(lower) || (/\b(transfer|transfers)\b/i.test(lower) && /\b(material|materials?|accessory|accessories)\b/i.test(lower));
   const isRgpQuery = /\b(rgp|gate\s*pass|returnable\s*gate\s*pass|vendor\s*outpass)\b/i.test(lower);
@@ -2252,7 +2258,7 @@ export async function processUniversalQuery(prompt, context = {}) {
   const isGeneralAccessoryForLot = mentionsLot && /\b(accessory|accessories|trims?|weight|tulai|kanta|issue\s*log|material|materials|zip|dori|button)\b/i.test(lower);
   const isBroadAccessoryQuery = /\b(accessor(?:y|ies)|trims?|materials?\s*storage|accessory\s*storage|accessory\s*sql)\b/i.test(lower) && !/\b(fabric\s*only)\b/i.test(lower);
 
-  if (isWeightCaptureQuery || isIssueLogsQuery || isMaterialsStockQuery || isAccessoryDbStatusQuery || isTransfersQuery || isRgpQuery || isScansQuery || isGeneralAccessoryForLot || isBroadAccessoryQuery) {
+  if (isWeightCaptureQuery || isIssueLogsQuery || isMaterialsStockQuery || isMaterialSpecificQuery || isAccessoryDbStatusQuery || isTransfersQuery || isRgpQuery || isScansQuery || isGeneralAccessoryForLot || isBroadAccessoryQuery) {
     const targetLot = mentionsLot ? mentionsLot[1].trim() : null;
 
     // Subcase 1: Specific Lot inquiry for Accessory Software data (Weight Capture, Issue Logs, Trims, Materials, RGPs, Scans)
@@ -2467,28 +2473,71 @@ List the recent materials issued, person name, category, and date in clean markd
       return { handled: true, answer: aiAnswer };
     }
 
-    // Subcase 7: Materials Stock / Specific Item / Low Stock Inquiry
-    if (isMaterialsStockQuery) {
+    // Subcase 7: Materials Stock / Specific Item / Low Stock Inquiry / Photo Requests
+    if (isMaterialsStockQuery || isMaterialSpecificQuery) {
       const isLowStock = /\b(low\s*stock|threshold|alert|warning|shortage|reorder)\b/i.test(lower);
+      const userAskedPhoto = /\b(photo|image|pic|picture|tasveer|tasvir|with\s*photo|photo\s*dikhao|photo\s*bhejo|photo\s*btana|photo\s*batao)\b/i.test(lower);
       let materials = [];
       let title = 'Accessory Materials & Stock Inventory';
+      let isSpecificSearch = false;
+      let imageAttachment = null;
+      let imageGallery = null;
 
       if (isLowStock) {
         materials = await getLowStockMaterials();
         title = 'Low Stock & Threshold Alert Materials';
       } else {
-        const matMatch = lower.match(/\b(button|zip|zipper|dori|tape|elastic|label|thread|velcro|tag|poly|fabric|rfk)\b/i);
-        if (matMatch) {
-          materials = await searchMaterialsByNameOrCode(matMatch[1]);
-          title = `Accessory Materials matching "${matMatch[1]}"`;
+        // Try smart multi-token search for items (e.g. "brooks label", "chanel tag", "cello tape")
+        materials = await searchAccessoryMaterialsSmart(p);
+        if (materials && materials.length > 0) {
+          isSpecificSearch = true;
+          title = `Accessory Materials matching "${materials[0]?.brand || materials[0]?.name || 'Item'}"`;
         } else {
+          // Fallback to generic inventory listing
           materials = await getMaterialsInventory({ limit: 30 });
         }
       }
 
-      const md = isLowStock ? formatLowStockToMarkdown(materials) : formatMaterialsToMarkdown(materials, title);
-      const sysPrompt = `You are PulseBot AI. Provide a clean breakdown of accessory materials inventory from the secondary SQL database (\`newdata\`).
-Highlight exact stock numbers, units, locations, and concrete solutions for low stock threshold warnings.`;
+      // Check if any matching item has Cloudinary image URL
+      const itemsWithImg = materials.filter(m => m.imageUrl && String(m.imageUrl).trim().startsWith('http'));
+      if (itemsWithImg.length > 0) {
+        const topImg = itemsWithImg[0];
+        imageAttachment = {
+          url: topImg.imageUrl,
+          title: `${topImg.name} (${topImg.category || 'Accessory'})`,
+          caption: `Stock: ${Number(topImg.stock || 0).toLocaleString()} ${topImg.unit || 'Pcs'} | Location: ${topImg.location || 'Godown'}`
+        };
+
+        if (itemsWithImg.length > 1) {
+          imageGallery = itemsWithImg.slice(0, 4).map(m => ({
+            url: m.imageUrl,
+            title: `${m.name} (${m.category || 'Accessory'})`,
+            caption: `Stock: ${Number(m.stock || 0).toLocaleString()} ${m.unit || 'Pcs'} | Location: ${m.location || 'Godown'}`
+          }));
+        }
+      }
+
+      let md = '';
+      if (isLowStock) {
+        md = formatLowStockToMarkdown(materials);
+      } else if (isSpecificSearch) {
+        md = formatMaterialDetailCardToMarkdown(materials, p, userAskedPhoto);
+      } else {
+        md = formatMaterialsToMarkdown(materials, title);
+      }
+
+      const sysPrompt = `You are PulseBot AI, the intelligent garment manufacturing and accessory operations copilot for Factory Suite Pro.
+The user is inquiring about accessory materials, stock levels, or asking for photos.
+Answer clearly in natural Hindi / Hinglish / English matching the user.
+
+Verified Data from Accessory SQL Database:
+${materials.slice(0, 10).map(m => `- [${m.id}] ${m.name} (${m.category}): Stock ${m.stock} ${m.unit}, Packets: ${m.packets || 1}, Location: ${m.location}, Cost: ₹${m.cost || 0}, Photo: ${m.imageUrl || 'No image'}`).join('\n')}
+
+Directives:
+1. State the exact stock, number of packets, and physical godown rack location (e.g. Main Store - RACK 37).
+2. If the user asked for photo or if Cloudinary images exist, confirm the photo is displayed and embed it using markdown: ![Item Name](imageUrl).
+3. Be direct, helpful, and courteous.
+4. User did NOT ask for PDF. Do not mention PDF.`;
 
       const aiAnswer = await generateAiResponseWithGemini({
         prompt: p,
@@ -2497,7 +2546,12 @@ Highlight exact stock numbers, units, locations, and concrete solutions for low 
         conversationHistory
       });
 
-      return { handled: true, answer: aiAnswer };
+      return {
+        handled: true,
+        answer: aiAnswer,
+        ...(imageAttachment ? { imageAttachment } : {}),
+        ...(imageGallery ? { imageGallery } : {})
+      };
     }
 
     // Subcase 8: Accessory Database Connection Status Inquiry

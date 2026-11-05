@@ -132,8 +132,16 @@ export async function getMaterialsInventory(options = {}) {
 
     if (search) {
       const term = `%${search.trim().toLowerCase()}%`;
-      sql += ` AND (LOWER(name) LIKE ? OR LOWER(id) LIKE ? OR LOWER(color) LIKE ? OR LOWER(location) LIKE ?)`;
-      params.push(term, term, term, term);
+      sql += ` AND (
+        LOWER(name) LIKE ? 
+        OR LOWER(id) LIKE ? 
+        OR LOWER(COALESCE(brand, '')) LIKE ? 
+        OR LOWER(COALESCE(itemCode, '')) LIKE ? 
+        OR LOWER(COALESCE(category, '')) LIKE ? 
+        OR LOWER(COALESCE(color, '')) LIKE ? 
+        OR LOWER(COALESCE(location, '')) LIKE ?
+      )`;
+      params.push(term, term, term, term, term, term, term);
     }
 
     if (lowStockOnly) {
@@ -154,6 +162,42 @@ export async function getMaterialsInventory(options = {}) {
 export async function searchMaterialsByNameOrCode(term) {
   if (!term) return [];
   return getMaterialsInventory({ search: term, limit: 30 });
+}
+
+/**
+ * Smart Multi-Token Search for materials, brands, categories, tags, labels with Cloudinary images
+ */
+export async function searchAccessoryMaterialsSmart(queryStr, options = {}) {
+  const raw = String(queryStr || '').trim();
+  if (!raw) return [];
+
+  const lower = raw.toLowerCase();
+
+  // 1. Direct search by full term
+  let rows = await getMaterialsInventory({ search: raw, limit: options.limit || 30 });
+  if (rows && rows.length > 0) return rows;
+
+  // 2. Extract potential keywords: split by whitespace, filter out common filler words
+  const stopWords = new Set(['k', 'ke', 'ka', 'ki', 'ko', 'me', 'mre', 'mere', 'pass', 'paas', 'kitna', 'kitne', 'kitni', 'pda', 'pada', 'hai', 'h', 'with', 'photo', 'image', 'pic', 'dikhao', 'batao', 'btana', 'show', 'tell', 'available', 'check', 'karo', 'please']);
+  const tokens = lower.replace(/[^a-z0-9\s_-]/g, ' ').split(/\s+/).filter(t => t.length >= 2 && !stopWords.has(t));
+
+  for (const token of tokens) {
+    const candidate = await getMaterialsInventory({ search: token, limit: 30 });
+    if (candidate && candidate.length > 0) {
+      // If query also specified a category (e.g. label or tag), prioritize matching category
+      if (/\b(labels?)\b/i.test(lower)) {
+        const filtered = candidate.filter(c => /labels?/i.test(c.category || ''));
+        if (filtered.length > 0) return filtered;
+      }
+      if (/\b(tags?)\b/i.test(lower)) {
+        const filtered = candidate.filter(c => /tags?/i.test(c.category || ''));
+        if (filtered.length > 0) return filtered;
+      }
+      return candidate;
+    }
+  }
+
+  return [];
 }
 
 export async function getLowStockMaterials() {
@@ -497,6 +541,50 @@ export function formatIssueLogsToMarkdown(logs, lotNo = '') {
 
     md += `| ${id} | ${person} | ${cat} | ${vol} | ${date} | ${type} | ${matsText} |\n`;
   });
+
+  return md;
+}
+
+export function formatMaterialDetailCardToMarkdown(items, searchTerm = '', userAskedPhoto = false) {
+  if (!items || items.length === 0) {
+    return `*Accessory SQL Database mein "${searchTerm || 'Item'}" ke naam ya brand se koi material nahi mila.*`;
+  }
+
+  const titleName = items[0]?.brand || items[0]?.name || searchTerm || 'Material';
+  let md = `### 🧵 Verified Accessory Stock: **${titleName}**\n\n`;
+
+  md += `| Code | Item Name | Category | Current Stock | Packets | Godown Location | Unit Cost | PO / Invoice |\n`;
+  md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+
+  items.forEach(m => {
+    const code = m.id ? `\`${m.id}\`` : '-';
+    const isLow = Number(m.stock || 0) <= Number(m.threshold || 0);
+    const stockDisplay = isLow ? `⚠️ 🔴 **${Number(m.stock || 0).toLocaleString()} ${m.unit || 'Pcs'}** (Low)` : `🟢 **${Number(m.stock || 0).toLocaleString()} ${m.unit || 'Pcs'}**`;
+    const loc = m.location || 'Main Store';
+    const cost = Number(m.cost || 0) > 0 ? `₹${m.cost}` : '₹0.00';
+    const po = m.poNumber || m.invoiceNo || '-';
+
+    md += `| ${code} | **${m.name}** | **${m.category || 'Accessory'}** | ${stockDisplay} | **${m.packets || 1} Pkts** | 📍 \`${loc}\` | ${cost} | #${po} |\n`;
+  });
+
+  md += `\n`;
+
+  // Photos Section (Embed Cloudinary Images)
+  const itemsWithImages = items.filter(m => m.imageUrl && m.imageUrl.trim());
+  if (itemsWithImages.length > 0) {
+    md += `#### 🖼️ Material Photos (Cloudinary Verified):\n\n`;
+    itemsWithImages.forEach(m => {
+      const label = `${m.name} (${m.category || 'Accessory'} • ${m.id})`;
+      md += `* **${label}:**\n\n`;
+      md += `![${label}](${m.imageUrl})\n\n`;
+    });
+  } else if (userAskedPhoto) {
+    md += `ℹ️ *Note: Is material ke liye abhi Cloudinary image URL upload nahi hua hai.*\n\n`;
+  }
+
+  // Summary solution sentence
+  const totalStockSum = items.reduce((acc, m) => acc + (Number(m.stock) || 0), 0);
+  md += `💡 **Quick Summary & Solution:** Aapke paas total **${Number(totalStockSum).toLocaleString()} units** available hain. Material physical verification ke liye di gayi godown rack locations check karein.\n`;
 
   return md;
 }
