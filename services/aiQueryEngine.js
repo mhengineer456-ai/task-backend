@@ -2535,7 +2535,8 @@ List the recent materials issued, person name, category, and date in clean markd
         };
 
         if (itemsWithImg.length > 1) {
-          imageGallery = itemsWithImg.slice(0, 6).map(m => ({
+          // Pass ALL items with photos to gallery (up to 100 items!)
+          imageGallery = itemsWithImg.slice(0, 100).map(m => ({
             url: m.imageUrl,
             title: `${m.name} (${m.category || 'Accessory'})`,
             category: m.category || 'Accessory',
@@ -2554,19 +2555,34 @@ List the recent materials issued, person name, category, and date in clean markd
         md = formatMaterialsToMarkdown(materials, title);
       }
 
-      const sysPrompt = `You are PulseBot AI, the dedicated accessory and trims inventory copilot for Factory Suite Pro.
-The user is asking ONLY about raw accessory materials, trims stock, or godown rack location.
-Answer clearly and warmly in natural Hindi / Hinglish / English matching the user.
+      const totalStockSum = materials.reduce((acc, m) => acc + (Number(m.stock) || 0), 0);
+      const totalPacketsSum = materials.reduce((acc, m) => acc + (Number(m.packets) || 0), 0);
+      const isBroadCategory = materials.length >= 10;
+      const topMaterials = materials.slice(0, 15);
 
-VERIFIED ACCESSORY SQL DATA (DATABASE: railway.materials):
-${materials.map(m => `• Item: ${m.name} | Category: ${m.category} | Stock: ${m.stock} ${m.unit} (${m.packets || 1} Pkts) | Location: ${m.location}`).join('\n')}
+      const sysPrompt = `You are PulseBot AI, the dedicated accessory & trims inventory copilot for Factory Suite Pro.
+The user asked: "${p}".
+Answer clearly, professionally, and warmly in natural Hindi / Hinglish matching the user.
+
+VERIFIED ACCESSORY SQL DATA SUMMARY (DATABASE: railway.materials):
+• Total Registered Items: ${materials.length} items
+• Grand Total Stock Available: ${Number(totalStockSum).toLocaleString()} units across godown racks
+• Total Packets: ${Number(totalPacketsSum).toLocaleString()} Packets
+• Verified Cloudinary Photos: ${itemsWithImg.length} photos loaded in the interactive gallery below
+
+${isBroadCategory ? `TOP HIGH-STOCK ITEMS:
+${topMaterials.map((m, idx) => `${idx + 1}. Item: ${m.name} | Category: ${m.category} | Stock: ${Number(m.stock).toLocaleString()} ${m.unit || 'Pcs'} (${m.packets || 1} Pkts) | Location: ${m.location}`).join('\n')}
+(Plus ${materials.length - topMaterials.length} additional items registered in this category)` : `ITEMS:
+${materials.map(m => `• Item: ${m.name} | Category: ${m.category} | Stock: ${Number(m.stock).toLocaleString()} ${m.unit || 'Pcs'} (${m.packets || 1} Pkts) | Location: ${m.location}`).join('\n')}`}
 
 STRICT DIRECTIVES:
-1. DO NOT mention, list, or include ANY garment cutting lots, job orders, master orders, or garment manufacturing orders under ANY circumstance. The user asked ONLY for accessory inventory.
-2. Focus strictly on the accessory materials: Item name, category (Labels, Tags, Patch, etc.), exact stock quantity, packets, and godown rack location (e.g. ${materials[0]?.location || 'Main Store'}).
-3. CRITICAL RULE - NEVER OUTPUT ANY URL: DO NOT write raw URLs, http links, or Cloudinary URLs (e.g. https://res.cloudinary.com/...) in your text response. The system will automatically display the verified high-resolution photos in the visual image card and gallery below your response.
-4. Keep the response crisp, accurate, helpful, and professional.
-5. User did NOT ask for PDF. Do not mention PDF.`;
+1. MANDATORY: Prominently state the GRAND TOTAL STOCK (${Number(totalStockSum).toLocaleString()} units across ${materials.length} items and ${Number(totalPacketsSum).toLocaleString()} packets) in the opening lines.
+2. Present the ${isBroadCategory ? 'top high-stock items' : 'items'} with their exact stock, packets, and godown rack locations.
+3. Mention that ALL ${itemsWithImg.length} verified item photos are loaded in the interactive photo gallery below for full-screen inspection and search.
+4. DO NOT mention or include ANY garment cutting lots, job orders, master orders, or garment manufacturing data under ANY circumstance.
+5. NEVER print raw URLs or Cloudinary links in your text response.
+6. Keep the response crisp, accurate, helpful, and professional.
+7. User did NOT ask for PDF. Do not mention PDF.`;
 
       let aiAnswer = await generateAiResponseWithGemini({
         prompt: p,

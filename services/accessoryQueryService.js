@@ -173,28 +173,102 @@ export async function searchAccessoryMaterialsSmart(queryStr, options = {}) {
 
   const lower = raw.toLowerCase();
 
-  // 1. Direct search by full term
-  let rows = await getMaterialsInventory({ search: raw, limit: options.limit || 30 });
-  if (rows && rows.length > 0) return rows;
+  // 1. Identify common accessory categories
+  const isTag = /\b(tags?)\b/i.test(lower);
+  const isLabel = /\b(labels?)\b/i.test(lower);
+  const isPatch = /\b(patch(?:es)?|matel\s*patch)\b/i.test(lower);
+  const isButton = /\b(buttons?)\b/i.test(lower);
+  const isTape = /\b(tapes?)\b/i.test(lower);
+  const isDori = /\b(dori|doori)\b/i.test(lower);
+  const isBone = /\b(bones?)\b/i.test(lower);
+  const isPolybag = /\b(polybegs?|polybags?)\b/i.test(lower);
+  const isElastic = /\b(elastics?)\b/i.test(lower);
+  const isStopper = /\b(stoppers?)\b/i.test(lower);
+  const isSpray = /\b(spray|sprays)\b/i.test(lower);
 
-  // 2. Extract potential keywords: split by whitespace, filter out common filler words
-  const stopWords = new Set(['k', 'ke', 'ka', 'ki', 'ko', 'me', 'mre', 'mere', 'pass', 'paas', 'kitna', 'kitne', 'kitni', 'pda', 'pada', 'hai', 'h', 'with', 'photo', 'image', 'pic', 'dikhao', 'batao', 'btana', 'show', 'tell', 'available', 'check', 'karo', 'please']);
-  const tokens = lower.replace(/[^a-z0-9\s_-]/g, ' ').split(/\s+/).filter(t => t.length >= 2 && !stopWords.has(t));
+  // Extract non-category keywords (to check if a specific brand/item is requested, e.g. "amiri tag" vs "total tag")
+  const stopWords = new Set([
+    'k', 'ke', 'ka', 'ki', 'ko', 'me', 'mein', 'mre', 'mere', 'pass', 'paas',
+    'kitna', 'kitne', 'kitni', 'pda', 'pada', 'hai', 'h', 'with', 'photo', 'photos',
+    'image', 'images', 'pic', 'pics', 'picture', 'dikhao', 'batao', 'btana', 'show',
+    'tell', 'available', 'check', 'karo', 'krdo', 'please', 'total', 'all', 'sabhi',
+    'sbhi', 'detail', 'details', 'stock', 'inventory', 'godown', 'rack', 'location',
+    'tag', 'tags', 'label', 'labels', 'patch', 'patches', 'button', 'buttons',
+    'tape', 'tapes', 'dori', 'bone', 'polybeg', 'polybag', 'elastic', 'stopper', 'spray'
+  ]);
+  const brandTokens = lower.replace(/[^a-z0-9\s_-]/g, ' ').split(/\s+/).filter(t => t.length >= 2 && !stopWords.has(t));
 
-  for (const token of tokens) {
-    const candidate = await getMaterialsInventory({ search: token, limit: 30 });
-    if (candidate && candidate.length > 0) {
-      // If query also specified a category (e.g. label or tag), prioritize matching category
-      if (/\b(labels?)\b/i.test(lower)) {
-        const filtered = candidate.filter(c => /labels?/i.test(c.category || ''));
-        if (filtered.length > 0) return filtered;
+  try {
+    // Case A: Query is for an entire category (with or without a specific brand)
+    if (isTag || isLabel || isPatch || isButton || isTape || isDori || isBone || isPolybag || isElastic || isStopper || isSpray) {
+      let catClauses = [];
+      let catParams = [];
+
+      if (isTag) {
+        catClauses.push('LOWER(category) IN (?, ?)');
+        catParams.push('tags', 'tag');
+      } else if (isLabel) {
+        catClauses.push('LOWER(category) LIKE ?');
+        catParams.push('%label%');
+      } else if (isPatch) {
+        catClauses.push('(LOWER(category) LIKE ? OR LOWER(category) LIKE ?)');
+        catParams.push('%patch%', '%matel patch%');
+      } else if (isButton) {
+        catClauses.push('LOWER(category) LIKE ?');
+        catParams.push('%button%');
+      } else if (isTape) {
+        catClauses.push('LOWER(category) LIKE ?');
+        catParams.push('%tape%');
+      } else if (isDori) {
+        catClauses.push('(LOWER(category) LIKE ? OR LOWER(category) LIKE ?)');
+        catParams.push('%dori%', '%doori%');
+      } else if (isBone) {
+        catClauses.push('LOWER(category) LIKE ?');
+        catParams.push('%bone%');
+      } else if (isPolybag) {
+        catClauses.push('(LOWER(category) LIKE ? OR LOWER(category) LIKE ?)');
+        catParams.push('%polybeg%', '%polybag%');
+      } else if (isElastic) {
+        catClauses.push('LOWER(category) LIKE ?');
+        catParams.push('%elastic%');
+      } else if (isStopper) {
+        catClauses.push('LOWER(category) LIKE ?');
+        catParams.push('%stopper%');
+      } else if (isSpray) {
+        catClauses.push('LOWER(category) LIKE ?');
+        catParams.push('%spray%');
       }
-      if (/\b(tags?)\b/i.test(lower)) {
-        const filtered = candidate.filter(c => /tags?/i.test(c.category || ''));
-        if (filtered.length > 0) return filtered;
+
+      // If a brand token was also present (e.g. "amiri tag"), filter by that brand as well
+      if (brandTokens.length > 0) {
+        let brandConditions = [];
+        let brandParams = [];
+        for (const bt of brandTokens) {
+          brandConditions.push('(LOWER(name) LIKE ? OR LOWER(COALESCE(brand, "")) LIKE ? OR LOWER(COALESCE(itemCode, "")) LIKE ?)');
+          const pVal = `%${bt}%`;
+          brandParams.push(pVal, pVal, pVal);
+        }
+        const sql = `SELECT * FROM materials WHERE (${catClauses.join(' OR ')}) AND (${brandConditions.join(' OR ')}) ORDER BY stock DESC LIMIT 200`;
+        const brandRows = await accessoryQuery(sql, [...catParams, ...brandParams]);
+        if (brandRows && brandRows.length > 0) return brandRows;
       }
-      return candidate;
+
+      // If no specific brand or brand matched nothing, return ALL items for this category!
+      const catSql = `SELECT * FROM materials WHERE (${catClauses.join(' OR ')}) ORDER BY stock DESC LIMIT 300`;
+      const allCatRows = await accessoryQuery(catSql, catParams);
+      if (allCatRows && allCatRows.length > 0) return allCatRows;
     }
+
+    // Case B: General Brand / Item Name search (e.g. "amiri", "brooks brothers", "ST00001")
+    let rows = await getMaterialsInventory({ search: raw, limit: options.limit || 100 });
+    if (rows && rows.length > 0) return rows;
+
+    for (const token of brandTokens) {
+      const candidate = await getMaterialsInventory({ search: token, limit: 100 });
+      if (candidate && candidate.length > 0) return candidate;
+    }
+  } catch (err) {
+    console.warn('[Accessory Service] Error in smart search:', err.message);
   }
 
   return [];
@@ -547,16 +621,28 @@ export function formatIssueLogsToMarkdown(logs, lotNo = '') {
 
 export function formatMaterialDetailCardToMarkdown(items, searchTerm = '', userAskedPhoto = false) {
   if (!items || items.length === 0) {
-    return `*Accessory SQL Database mein "${searchTerm || 'Item'}" ke naam ya brand se koi material nahi mila.*`;
+    return `*Accessory SQL Database mein "${searchTerm || 'Item'}" ke naam ya category se koi material nahi mila.*`;
   }
 
   const titleName = items[0]?.brand || items[0]?.name || searchTerm || 'Material';
+  const totalStockSum = items.reduce((acc, m) => acc + (Number(m.stock) || 0), 0);
+  const totalPacketsSum = items.reduce((acc, m) => acc + (Number(m.packets) || 0), 0);
+  const itemsWithImages = items.filter(m => m.imageUrl && m.imageUrl.trim());
+
   let md = `### 🧵 Verified Accessory Stock: **${titleName}**\n\n`;
+  md += `* 📦 **Total Registered Items:** **${items.length} items**\n`;
+  md += `* 🔢 **Grand Total Stock:** **${Number(totalStockSum).toLocaleString()} units** (Across **${totalPacketsSum.toLocaleString()} Packets**)\n`;
+  if (itemsWithImages.length > 0) {
+    md += `* 📸 **Verified Photos:** **${itemsWithImages.length} High-Resolution Photos** loaded in the interactive gallery below\n\n`;
+  } else {
+    md += `\n`;
+  }
 
   md += `| Code | Item Name | Category | Current Stock | Packets | Godown Location | Unit Cost | PO / Invoice |\n`;
   md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
 
-  items.forEach(m => {
+  const displayLimit = Math.min(items.length, 20);
+  items.slice(0, displayLimit).forEach(m => {
     const code = m.id ? `\`${m.id}\`` : '-';
     const isLow = Number(m.stock || 0) <= Number(m.threshold || 0);
     const stockDisplay = isLow ? `⚠️ 🔴 **${Number(m.stock || 0).toLocaleString()} ${m.unit || 'Pcs'}** (Low)` : `🟢 **${Number(m.stock || 0).toLocaleString()} ${m.unit || 'Pcs'}**`;
@@ -567,23 +653,13 @@ export function formatMaterialDetailCardToMarkdown(items, searchTerm = '', userA
     md += `| ${code} | **${m.name}** | **${m.category || 'Accessory'}** | ${stockDisplay} | **${m.packets || 1} Pkts** | 📍 \`${loc}\` | ${cost} | #${po} |\n`;
   });
 
-  md += `\n`;
-
-  // Photos Section (Embed Cloudinary Images)
-  const itemsWithImages = items.filter(m => m.imageUrl && m.imageUrl.trim());
-  if (itemsWithImages.length > 0) {
-    md += `#### 🖼️ Material Photos (Cloudinary Verified):\n\n`;
-    itemsWithImages.forEach(m => {
-      const label = `${m.name} (${m.category || 'Accessory'} • ${m.id})`;
-      md += `* **${label}:**\n\n`;
-      md += `![${label}](${m.imageUrl})\n\n`;
-    });
-  } else if (userAskedPhoto) {
-    md += `ℹ️ *Note: Is material ke liye abhi Cloudinary image URL upload nahi hua hai.*\n\n`;
+  if (items.length > displayLimit) {
+    md += `\n*Showing top ${displayLimit} of ${items.length} total items in this category. All ${items.length} items and their verified photos are accessible in the photo gallery below.*\n\n`;
+  } else {
+    md += `\n`;
   }
 
   // Summary solution sentence
-  const totalStockSum = items.reduce((acc, m) => acc + (Number(m.stock) || 0), 0);
   md += `💡 **Quick Summary & Solution:** Aapke paas total **${Number(totalStockSum).toLocaleString()} units** available hain. Material physical verification ke liye di gayi godown rack locations check karein.\n`;
 
   return md;
