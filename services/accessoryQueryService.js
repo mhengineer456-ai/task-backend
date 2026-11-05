@@ -116,6 +116,66 @@ export async function getRecentIssueLogs(limit = 20) {
 }
 
 /**
+ * Search Issue Logs by material name, category, receiver, lotId, or keyword
+ */
+export async function searchIssueLogs(query = '', options = {}) {
+  const { limit = 50, lotId = null, receiver = null } = options;
+  try {
+    let sql = `SELECT * FROM issue_logs WHERE 1=1`;
+    const params = [];
+
+    // 1. Direct Lot ID filter
+    if (lotId) {
+      const clean = cleanLot(lotId);
+      sql += ` AND (LOWER(lotId) = LOWER(?) OR LOWER(lotId) LIKE LOWER(?))`;
+      params.push(clean, `%${clean}%`);
+    }
+
+    // 2. Direct Receiver filter
+    if (receiver) {
+      sql += ` AND (LOWER(receiverName) LIKE LOWER(?) OR LOWER(receiverDept) LIKE LOWER(?))`;
+      params.push(`%${receiver}%`, `%${receiver}%`);
+    }
+
+    // 3. Multi-keyword search across materials, lotId, receiverName, personName
+    if (query && query.trim()) {
+      const cleanTerm = query.trim().toLowerCase();
+      const stopWords = new Set([
+        'sry', 'sorry', 'ab', 'tk', 'tak', 'kis', 'kisko', 'kisne', 'kise', 'or', 'aur', 
+        'k', 'ke', 'ki', 'ka', 'ko', 'against', 'issue', 'issued', 'issuance', 'kara', 
+        'kra', 'kare', 'kiya', 'hua', 'hai', 'h', 'tha', 'the', 'thi', 'mre', 
+        'mere', 'pass', 'with', 'photo', 'photos', 'total', 'details', 'detail', 'batao', 
+        'btana', 'dikhao', 'check', 'karo', 'karna', 'kariye', 'please', 'plz', 'record', 
+        'records', 'logs', 'log', 'history', 'btao', 'lot', 'lots', 'item', 'items', 'sirf',
+        'kya', 'kyu', 'kaun', 'kaunse', 'kab', 'kaha', 'kaise', 'kitna', 'kitne', 'kitni',
+        'gya', 'gaya', 'gaye', 'gayi', 'hue', 'hui', 'par', 'pe', 'se', 'me', 'mein',
+        'diye', 'diya', 'liya', 'liye', 'kuch', 'bhi', 'abtak'
+      ]);
+      const words = cleanTerm.split(/[\s,]+/).filter(w => w.length > 1 && !stopWords.has(w));
+
+      if (words.length > 0) {
+        words.forEach(w => {
+          sql += ` AND (LOWER(materials) LIKE LOWER(?) OR LOWER(lotId) LIKE LOWER(?) OR LOWER(receiverName) LIKE LOWER(?) OR LOWER(receiverDept) LIKE LOWER(?) OR LOWER(personName) LIKE LOWER(?))`;
+          params.push(`%${w}%`, `%${w}%`, `%${w}%`, `%${w}%`, `%${w}%`);
+        });
+      }
+    }
+
+    sql += ` ORDER BY date DESC, id DESC LIMIT ?`;
+    params.push(Number(limit) || 50);
+
+    const rows = await accessoryQuery(sql, params);
+    return (rows || []).map(r => ({
+      ...r,
+      parsedMaterials: safeParseJson(r.materials, r.materials)
+    }));
+  } catch (err) {
+    console.warn('[Accessory Service] Error searching issue logs:', err.message);
+    return [];
+  }
+}
+
+/**
  * 3. MATERIALS / INVENTORY QUERIES
  */
 export async function getMaterialsInventory(options = {}) {
@@ -587,33 +647,53 @@ export function formatWeightRecordsToMarkdown(records, lotNo = '') {
   return md;
 }
 
-export function formatIssueLogsToMarkdown(logs, lotNo = '') {
+export function formatIssueLogsToMarkdown(logs, title = '') {
   if (!logs || logs.length === 0) {
-    return lotNo 
-      ? `*No accessory issue logs recorded for Lot **${lotNo}**.*`
-      : `*No accessory issue logs found.*`;
+    return title 
+      ? `*Accessory SQL Database ke \`issue_logs\` table mein "${title}" ke liye koi issuance record nahi mila.*`
+      : `*Accessory SQL Database ke \`issue_logs\` table mein koi issuance record nahi mila.*`;
   }
 
-  let md = `### 📦 Accessory Issue Logs ${lotNo ? `(Lot ${lotNo})` : ''}\n\n`;
-  md += `| ID | Person | Category | Volume | Date | Type | Materials Issued |\n`;
-  md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+  let md = `### 📋 Verified Accessory Issuance History (Table: issue_logs)\n\n`;
+  md += `* 📦 **Total Issuance Records Found:** **${logs.length} entries**\n\n`;
+  md += `| # | Lot Number | Material & Qty | Issued To | Issued By | Issue Date |\n`;
+  md += `| :--- | :--- | :--- | :--- | :--- | :--- |\n`;
 
-  logs.forEach(l => {
-    const id = l.id ? `\`${l.id}\`` : '-';
-    const person = l.personName ? `**${l.personName}**` : 'Floor Supervisor';
-    const cat = l.category || 'Accessories';
-    const vol = l.volume !== undefined && l.volume !== null ? l.volume : '-';
+  logs.forEach((l, idx) => {
+    const lotDisplay = l.lotId ? `**Lot ${l.lotId}**` : '-';
+    const receiver = l.receiverName 
+      ? `👤 **${l.receiverName}**${l.receiverDept ? ` *(${l.receiverDept})*` : ''}` 
+      : (l.receiverDept ? `*${l.receiverDept}*` : 'Floor');
+    const person = l.personName ? `**${l.personName}**` : 'Floor';
     const date = l.date || '-';
-    const type = l.isReturn ? '↩️ Return' : (l.isReissue ? '🔁 Re-issue' : '📤 Regular Issue');
-    
+
     let matsText = '-';
-    if (Array.isArray(l.parsedMaterials)) {
-      matsText = l.parsedMaterials.map(m => `${m.name || m.materialName || 'Item'}: ${m.qty || m.quantity || ''} ${m.unit || ''}`).join(', ');
+    if (Array.isArray(l.parsedMaterials) && l.parsedMaterials.length > 0) {
+      matsText = l.parsedMaterials.map(m => {
+        const name = m.name || m.materialName || 'Item';
+        const type = m.bomItemName ? ` (${m.bomItemName})` : '';
+        const qty = m.qty !== undefined && m.qty !== null ? ` ${m.qty} ${m.unit || 'Pcs'}` : '';
+        return `**${name}${type}**: \`${qty.trim() || 'Issued'}\``;
+      }).join(', ');
     } else if (typeof l.materials === 'string' && l.materials.trim()) {
-      matsText = l.materials;
+      try {
+        const parsed = JSON.parse(l.materials);
+        if (Array.isArray(parsed)) {
+          matsText = parsed.map(m => {
+            const name = m.name || m.materialName || 'Item';
+            const type = m.bomItemName ? ` (${m.bomItemName})` : '';
+            const qty = m.qty !== undefined && m.qty !== null ? ` ${m.qty} ${m.unit || 'Pcs'}` : '';
+            return `**${name}${type}**: \`${qty.trim() || 'Issued'}\``;
+          }).join(', ');
+        } else {
+          matsText = l.materials;
+        }
+      } catch (e) {
+        matsText = l.materials;
+      }
     }
 
-    md += `| ${id} | ${person} | ${cat} | ${vol} | ${date} | ${type} | ${matsText} |\n`;
+    md += `| ${idx + 1} | ${lotDisplay} | ${matsText} | ${receiver} | ${person} | ${date} |\n`;
   });
 
   return md;

@@ -10,6 +10,7 @@ import {
   getWeightCaptureSummary,
   getIssueLogsByLot,
   getRecentIssueLogs,
+  searchIssueLogs,
   getMaterialsInventory,
   searchMaterialsByNameOrCode,
   searchAccessoryMaterialsSmart,
@@ -2266,12 +2267,17 @@ export async function processUniversalQuery(prompt, context = {}) {
   }
 
   const isWeightCaptureQuery = /\b(weight\s*capture|weight\s*machine|kanta|tulai|gross\s*weight|net\s*weight|tare\s*weight|weight\s*per\s*piece|wt\/pc|vajan|wazan|sample\s*weight|scale)\b/i.test(lower);
-  const isIssueLogsQuery = /\b(issue\s*logs?|accessory\s*issue|materials?\s*issued?|re-?issue|return\s*materials?|kisne\s*issue\s*kiya|issue\s*history)\b/i.test(lower);
-  const isMaterialsStockQuery = /\b(materials?\s*stock|accessory\s*stock|accessory\s*inventory|low\s*stock|threshold\s*alert|trims?\s*stock|button\s*stock|zip\s*stock|dori\s*stock|materials?\s*list|godown\s*stock|available\s*accessories)\b/i.test(lower);
-  const isMaterialSpecificQuery = !!preMatchedMaterials || (
+  const isIssueLogsQuery = (
+    /\b(issue\s*logs?|issuance|accessory\s*issue|materials?\s*issued?|re-?issue|return\s*materials?|issue\s*history|issue\s*record|issue\s*details?|issue\s*list)\b/i.test(lower) ||
+    (/\b(issue|issued|issuing)\b/i.test(lower) && /\b(kisko|kisne|kise|against|lot|ab\s*tk|history|record|logs?|list|kar[ae]|kra|kiya|hua|kare|hai|h|tha|the|thi|diya|diye)\b/i.test(lower)) ||
+    /\b(kis\s*kis(?:ko)?\s*(?:or\s*kis\s*kis\s*lot)?.*issue)\b/i.test(lower) ||
+    /\b(issuance)\b/i.test(lower)
+  );
+  const isMaterialsStockQuery = !isIssueLogsQuery && /\b(materials?\s*stock|accessory\s*stock|accessory\s*inventory|low\s*stock|threshold\s*alert|trims?\s*stock|button\s*stock|zip\s*stock|dori\s*stock|materials?\s*list|godown\s*stock|available\s*accessories)\b/i.test(lower);
+  const isMaterialSpecificQuery = !isIssueLogsQuery && (!!preMatchedMaterials || (
     /\b(kitna\s*p(?:a|d)a|kitna\s*stock|kitne?\s*(?:pcs|piece|meter|roll|packet|pkt)|stock|inventory|godown|rack|location|available|with\s*photo|photo|image|pic|tasveer|tasvir|dikhao|bhejo|btana)\b/i.test(lower) &&
     /\b(label|labels|tag|tags|button|buttons|zip|zipper|dori|tape|tapes|patch|patches|polybeg|polybag|elastic|thread|bone|rivet|stopper|cuff|spray|brooks|chanel|zara|h&m|hm|polo|nike|adidas|gap|levis|calvin|amiri)\b/i.test(lower)
-  ) || /\b(brooks|chanel|amiri|cello\s*tape)\b/i.test(lower);
+  ) || /\b(brooks|chanel|amiri|cello\s*tape)\b/i.test(lower));
   const isAccessoryDbStatusQuery = /\b(accessory\s*software|accessory\s*(?:sql\s*)?database|accessory\s*db|another\s*sql|secondary\s*sql|newdata\s*(?:db|database)?)\b/i.test(lower) && /\b(status|connected|link|linked|check|details|credentials)\b/i.test(lower);
   const isTransfersQuery = /\b(transfer|transfers|godown\s*transfer|material\s*transfer|rack\s*movement|hall\s*transfer)\b/i.test(lower) || (/\b(transfer|transfers)\b/i.test(lower) && /\b(material|materials?|accessory|accessories)\b/i.test(lower));
   const isRgpQuery = /\b(rgp|gate\s*pass|returnable\s*gate\s*pass|vendor\s*outpass)\b/i.test(lower);
@@ -2476,22 +2482,155 @@ Directives:
       return { handled: true, answer: aiAnswer };
     }
 
-    // Subcase 6: Issue Logs inquiries
+    // Subcase 6: Issue Logs inquiries (Querying 'railway.issue_logs' table)
     if (isIssueLogsQuery) {
-      const recentLogs = await getRecentIssueLogs(15);
-      const md = formatIssueLogsToMarkdown(recentLogs, '');
+      let targetLotNo = targetLot;
+      if (!targetLotNo) {
+        const lotMatch = lower.match(/\b(?:lot\s*(?:no\.?|#)?\s*)(\d{3,6})\b/i);
+        if (lotMatch) targetLotNo = lotMatch[1].trim();
+      }
 
-      const sysPrompt = `You are PulseBot AI. Provide the latest accessory issue logs from the accessory SQL software.
-List the recent materials issued, person name, category, and date in clean markdown.`;
+      // 1. Search issue_logs table
+      let issueLogs = await searchIssueLogs(p, { lotId: targetLotNo, limit: 50 });
 
-      const aiAnswer = await generateAiResponseWithGemini({
+      // 2. If specific search returned zero matches, try searching by preMatched brand/item
+      if ((!issueLogs || issueLogs.length === 0) && preMatchedMaterials && preMatchedMaterials.length > 0) {
+        const brandOrItem = preMatchedMaterials[0]?.brand || preMatchedMaterials[0]?.name;
+        if (brandOrItem) {
+          issueLogs = await searchIssueLogs(brandOrItem, { limit: 50 });
+        }
+      }
+
+      // 3. Fallback to recent issue logs if general query without specific filters
+      if (!issueLogs || issueLogs.length === 0) {
+        const hasSpecificFilter = /\b(amiri|zara|nike|polo|armani|tommy|gap|dior|label|tag|button|zip|dori|karan|monu|gyaninder|pooja|\d{4,6})\b/i.test(lower);
+        if (!hasSpecificFilter) {
+          issueLogs = await getRecentIssueLogs(25);
+        }
+      }
+
+      // Check if there are other issuance logs for this brand (e.g. Tags under Amiri)
+      let relatedLogs = [];
+      const brandWord = (p.match(/\b(amiri|zara|nike|polo|armani|tommy|gap|dior|lacoste|represent|bonkers|stussy|trapster|burburry)\b/i) || [])[0];
+      if (brandWord && issueLogs && issueLogs.length > 0) {
+        try {
+          const brandLogs = await searchIssueLogs(brandWord, { limit: 20 });
+          relatedLogs = (brandLogs || []).filter(bl => !issueLogs.some(il => il.id === bl.id));
+        } catch (e) {}
+      }
+
+      // Generate verified markdown table
+      let combinedLogs = [...issueLogs];
+      if (relatedLogs.length > 0) {
+        combinedLogs = [...issueLogs, ...relatedLogs];
+      }
+      const md = formatIssueLogsToMarkdown(combinedLogs, p);
+
+      // Photos from issue logs or associated materials table
+      let imageAttachment = null;
+      let imageGallery = null;
+      const logsWithPhotos = [];
+
+      // A) Direct photos in issue_logs
+      (issueLogs || []).forEach(l => {
+        if (Array.isArray(l.parsedMaterials)) {
+          l.parsedMaterials.forEach(m => {
+            if (m.imageUrl && String(m.imageUrl).trim().startsWith('http')) {
+              logsWithPhotos.push({
+                url: m.imageUrl,
+                title: `${m.name || 'Accessory'} (${m.bomItemName || 'Item'})`,
+                category: m.bomItemName || 'Issue Log',
+                garment: m.bomItemName || 'Accessory',
+                caption: `Lot ${l.lotId || '-'} | Issued to: ${l.receiverName || 'Floor'} (${l.receiverDept || ''})`
+              });
+            }
+          });
+        }
+      });
+
+      // B) Query materials table for matching photos of the specific item/brand
+      const itemNamesInLogs = new Set();
+      (combinedLogs || []).forEach(l => {
+        if (Array.isArray(l.parsedMaterials)) {
+          l.parsedMaterials.forEach(m => {
+            if (m.name) itemNamesInLogs.add(m.name.trim().toLowerCase());
+          });
+        }
+      });
+      if (brandWord) itemNamesInLogs.add(brandWord.toLowerCase());
+
+      if (logsWithPhotos.length === 0 && itemNamesInLogs.size > 0) {
+        for (const name of itemNamesInLogs) {
+          try {
+            const matchedMats = await searchMaterialsByNameOrCode(name);
+            (matchedMats || []).forEach(m => {
+              if (m.imageUrl && String(m.imageUrl).trim().startsWith('http')) {
+                logsWithPhotos.push({
+                  url: m.imageUrl,
+                  title: `${m.name} (${m.category || 'Accessory'})`,
+                  category: m.category || 'Accessory',
+                  garment: m.category || 'Accessory',
+                  caption: `Stock: ${Number(m.stock || 0).toLocaleString()} ${m.unit || 'Pcs'} | Location: ${m.location || 'Godown'}`
+                });
+              }
+            });
+          } catch (e) {}
+        }
+      }
+
+      if (logsWithPhotos.length > 0) {
+        imageAttachment = logsWithPhotos[0];
+        if (logsWithPhotos.length > 1) {
+          imageGallery = logsWithPhotos.slice(0, 50);
+        }
+      }
+
+      const lotsIssuedTo = [...new Set((issueLogs || []).map(l => l.lotId).filter(Boolean))];
+      const receiversList = [...new Set((issueLogs || []).map(l => l.receiverName ? `${l.receiverName}${l.receiverDept ? ` (${l.receiverDept})` : ''}` : null).filter(Boolean))];
+
+      const sysPrompt = `You are PulseBot AI, dedicated inventory and accessories copilot for Factory Suite Pro.
+The user asked: "${p}".
+Answer warmly, clearly, and directly in natural Hindi / Hinglish based strictly on verified records from the 'railway.issue_logs' database table.
+
+VERIFIED ACCESSORY ISSUANCE RECORDS (TABLE: railway.issue_logs):
+• Total Matching Issue Logs Found: ${issueLogs ? issueLogs.length : 0} entries
+• Lots Issued Against: ${lotsIssuedTo.length > 0 ? lotsIssuedTo.map(l => `Lot ${l}`).join(', ') : 'None'}
+• Issued To (Receivers & Departments): ${receiversList.length > 0 ? receiversList.join(', ') : 'None'}
+${issueLogs && issueLogs.length > 0 ? `\nLOGS DETAILS:\n${issueLogs.slice(0, 15).map((l, i) => `${i + 1}. Lot ${l.lotId}: ${Array.isArray(l.parsedMaterials) ? l.parsedMaterials.map(m => `${m.name} (${m.bomItemName || 'Item'}) - ${m.qty || ''} ${m.unit || 'Pcs'}`).join(', ') : l.materials} | Issued To: ${l.receiverName || 'Floor'} (${l.receiverDept || '-'}) | Issued By: ${l.personName || '-'} | Date: ${l.date || '-'}`).join('\n')}` : 'No matching logs found in issue_logs table.'}
+
+DIRECTIVES:
+1. Greet warmly and directly answer the user's specific questions:
+   - State WHICH LOTS it was issued against (e.g. Lot 11832, etc.)
+   - State WHO it was issued to (e.g. MONU in Stitching department, etc.)
+   - State the exact quantity, date, and who issued it.
+2. Note that the verified issuance audit table from the live \`issue_logs\` table is provided below.
+3. NEVER print raw Cloudinary URLs in text response.
+4. Keep the response crisp, accurate, helpful, and professional.
+5. User did NOT ask for PDF. Do not mention PDF.`;
+
+      let aiAnswer = await generateAiResponseWithGemini({
         prompt: p,
         systemInstruction: sysPrompt,
         fallbackText: md,
         conversationHistory
       });
 
-      return { handled: true, answer: aiAnswer };
+      if (aiAnswer) {
+        aiAnswer = aiAnswer.replace(/\(?https?:\/\/res\.cloudinary\.com\/[^\s\)\>]+(?:\)?)/gi, '');
+        aiAnswer = aiAnswer.replace(/!\[.*?\]\s*\n*\s*\(https?:\/\/[^\)]+\)/gi, '');
+        aiAnswer = aiAnswer.replace(/!\[.*?\]\(https?:\/\/[^\)]+\)/gi, '');
+        aiAnswer = aiAnswer.replace(/\|[\s\S]*?\|/g, '').trim();
+        aiAnswer = aiAnswer.replace(/\n{3,}/g, '\n\n').trim();
+      }
+
+      aiAnswer = aiAnswer ? `${aiAnswer}\n\n${md}` : md;
+
+      return {
+        handled: true,
+        answer: aiAnswer,
+        ...(imageAttachment ? { imageAttachment } : {}),
+        ...(imageGallery ? { imageGallery } : {})
+      };
     }
 
     // Subcase 7: Materials Stock / Specific Item / Low Stock Inquiry / Photo Requests
