@@ -25,7 +25,11 @@ import {
   getWeightCaptureSummary,
   getRecentIssueLogs,
   getIssueLogsByLot,
-  getMaterialsInventory
+  getMaterialsInventory,
+  getAccessoryStorageOverview,
+  getMaterialTransfers,
+  getAccessoryRgpList,
+  getAccessoryScans
 } from '../services/accessoryQueryService.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1727,6 +1731,58 @@ export const getAccessoryMaterials = async (req, res) => {
     return res.status(500).json({ success: false, error: err.message });
   }
 };
+
+/**
+ * Get Comprehensive Accessory Storage Overview & Actionable Solutions
+ */
+export const getAccessoryOverview = async (req, res) => {
+  try {
+    const overview = await getAccessoryStorageOverview();
+    return res.json({ success: true, overview });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * Get Warehouse Material Transfers
+ */
+export const getAccessoryTransfers = async (req, res) => {
+  try {
+    const { limit } = req.query;
+    const data = await getMaterialTransfers(limit || 50);
+    return res.json({ success: true, data });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * Get Accessory Returnable Gate Passes (RGP)
+ */
+export const getAccessoryRgps = async (req, res) => {
+  try {
+    const { limit } = req.query;
+    const data = await getAccessoryRgpList(limit || 50);
+    return res.json({ success: true, data });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * Get Inward Barcode Scans
+ */
+export const getAccessoryScansController = async (req, res) => {
+  try {
+    const { limit } = req.query;
+    const data = await getAccessoryScans(limit || 50);
+    return res.json({ success: true, data });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 
 
 

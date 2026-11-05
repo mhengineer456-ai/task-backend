@@ -20,7 +20,11 @@ import {
   getAccessoryLotReport,
   getAccessoryWeightCaptures,
   getAccessoryIssueLogs,
-  getAccessoryMaterials
+  getAccessoryMaterials,
+  getAccessoryOverview,
+  getAccessoryTransfers,
+  getAccessoryRgps,
+  getAccessoryScansController
 } from '../controllers/chatController.js';
 
 const router = express.Router();
@@ -51,10 +55,14 @@ router.get('/ai-context', getAiContextForN8n);
 // Secondary Accessory Software SQL Database Integration Routes
 router.get('/accessory-status', getAccessoryStatus);
 router.get('/accessory/status', getAccessoryStatus);
+router.get('/accessory/overview', getAccessoryOverview);
 router.get('/accessory/lot/:lotNo', getAccessoryLotReport);
 router.get('/accessory/weight-capture', getAccessoryWeightCaptures);
 router.get('/accessory/issue-logs', getAccessoryIssueLogs);
 router.get('/accessory/materials', getAccessoryMaterials);
+router.get('/accessory/transfers', getAccessoryTransfers);
+router.get('/accessory/rgp', getAccessoryRgps);
+router.get('/accessory/scans', getAccessoryScansController);
 
 // n8n AI Assistant Integration
 router.post('/ai-assistant', askAiAssistant);

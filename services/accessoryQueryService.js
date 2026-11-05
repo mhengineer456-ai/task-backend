@@ -1,7 +1,8 @@
-import { accessoryQuery, isAccessoryConnected, getAccessoryDbStatus } from '../config/accessoryDb.js';
+import { accessoryQuery, isAccessoryConnected, getAccessoryDbStatus, initAccessoryDatabase } from '../config/accessoryDb.js';
 
 function safeParseJson(raw, fallback = null) {
-  if (!raw || typeof raw !== 'string') return fallback;
+  if (!raw) return fallback;
+  if (typeof raw !== 'string') return raw;
   try {
     return JSON.parse(raw);
   } catch (e) {
@@ -61,8 +62,8 @@ export async function getWeightCaptureSummary() {
         ROUND(COALESCE(SUM(netWeightKg), 0), 2) as totalNetKg,
         COALESCE(SUM(pieces), 0) as totalPieces,
         COALESCE(SUM(packets), 0) as totalPackets,
-        SUM(CASE WHEN approvalStatus = 'Approved' THEN 1 ELSE 0 END) as approvedCount,
-        SUM(CASE WHEN approvalStatus = 'Pending' THEN 1 ELSE 0 END) as pendingCount
+        SUM(CASE WHEN LOWER(approvalStatus) = 'approved' THEN 1 ELSE 0 END) as approvedCount,
+        SUM(CASE WHEN LOWER(approvalStatus) = 'pending' OR approvalStatus IS NULL THEN 1 ELSE 0 END) as pendingCount
       FROM weight_capture
     `);
     return summary || null;
@@ -152,7 +153,7 @@ export async function getMaterialsInventory(options = {}) {
 
 export async function searchMaterialsByNameOrCode(term) {
   if (!term) return [];
-  return getMaterialsInventory({ search: term, limit: 20 });
+  return getMaterialsInventory({ search: term, limit: 30 });
 }
 
 export async function getLowStockMaterials() {
@@ -191,22 +192,78 @@ export async function getTrimsByLot(lotNo) {
   }
 }
 
+/**
+ * 5. GODOWN / WAREHOUSE MATERIAL TRANSFERS
+ */
+export async function getMaterialTransfers(limit = 20) {
+  try {
+    const rows = await accessoryQuery(
+      `SELECT * FROM material_transfers ORDER BY transferredAt DESC, id DESC LIMIT ?`,
+      [Number(limit) || 20]
+    );
+    return rows || [];
+  } catch (err) {
+    console.warn('[Accessory Service] Error querying material transfers:', err.message);
+    return [];
+  }
+}
 
 /**
- * 5. MASTER CONSOLIDATED LOT ACCESSORY INTELLIGENCE
- * Combines weight verification + issue logs + trim orders for a specific Lot
+ * 6. RETURNABLE GATE PASSES (RGP)
+ */
+export async function getAccessoryRgpList(limit = 20) {
+  try {
+    const rows = await accessoryQuery(
+      `SELECT * FROM rgp ORDER BY createdAt DESC, id DESC LIMIT ?`,
+      [Number(limit) || 20]
+    );
+    return (rows || []).map(r => ({
+      ...r,
+      parsedEntries: safeParseJson(r.entries, [])
+    }));
+  } catch (err) {
+    console.warn('[Accessory Service] Error querying RGP passes:', err.message);
+    return [];
+  }
+}
+
+/**
+ * 7. INWARD BARCODE SCANS
+ */
+export async function getAccessoryScans(limit = 20) {
+  try {
+    const rows = await accessoryQuery(
+      `SELECT * FROM scans ORDER BY scanned_at DESC, id DESC LIMIT ?`,
+      [Number(limit) || 20]
+    );
+    return rows || [];
+  } catch (err) {
+    console.warn('[Accessory Service] Error querying accessory scans:', err.message);
+    return [];
+  }
+}
+
+/**
+ * 8. MASTER CONSOLIDATED LOT ACCESSORY INTELLIGENCE
  */
 export async function getCompleteAccessoryReportForLot(lotNo) {
   const clean = cleanLot(lotNo);
   if (!clean) return null;
 
-  const [weightRecords, issueLogs, trims] = await Promise.all([
+  const [weightRecords, issueLogs, trims, rgps, scans] = await Promise.all([
     getWeightCaptureByLot(clean),
     getIssueLogsByLot(clean),
-    getTrimsByLot(clean)
+    getTrimsByLot(clean),
+    getAccessoryRgpList(50).then(list => list.filter(r => {
+      const matchInEntries = (r.parsedEntries || []).some(e => String(e.lotNo || '') === clean);
+      return matchInEntries || String(r.remarks || '').includes(clean);
+    })).catch(() => []),
+    accessoryQuery(`SELECT * FROM scans WHERE TRIM(LOWER(lot_number)) = TRIM(LOWER(?)) ORDER BY scanned_at DESC`, [clean]).catch(() => [])
   ]);
 
-  const hasData = (weightRecords.length > 0) || (issueLogs.length > 0) || (trims.zips.length > 0) || (trims.doris.length > 0);
+  const hasData = (weightRecords.length > 0) || (issueLogs.length > 0) ||
+                  (trims.zips.length > 0) || (trims.doris.length > 0) ||
+                  (rgps.length > 0) || (scans.length > 0);
 
   // Calculate metrics
   const totalVerifiedWeightKg = weightRecords.reduce((acc, r) => acc + (Number(r.netWeightKg) || 0), 0);
@@ -226,17 +283,160 @@ export async function getCompleteAccessoryReportForLot(lotNo) {
       isAllApproved,
       issueLogsCount: issueLogs.length,
       zipOrdersCount: trims.zips.length,
-      doriOrdersCount: trims.doris.length
+      doriOrdersCount: trims.doris.length,
+      rgpCount: rgps.length,
+      scanCount: scans.length
     },
     weightRecords,
     issueLogs,
     zips: trims.zips,
-    doris: trims.doris
+    doris: trims.doris,
+    rgps,
+    scans
   };
 }
 
 /**
- * 6. ELEGANT MARKDOWN BUILDERS FOR PULSEBOT AI
+ * 9. COMPREHENSIVE ACCESSORY STORAGE OVERVIEW WITH SOLUTIONS
+ */
+export async function getAccessoryStorageOverview() {
+  if (!isAccessoryConnected()) {
+    await initAccessoryDatabase().catch(() => {});
+  }
+
+  const [allMaterials, weightSummary, recentWeights, recentTransfers, recentRgps, recentScans, trimsCount] = await Promise.all([
+    getMaterialsInventory({ limit: 200 }),
+    getWeightCaptureSummary(),
+    getRecentWeightCaptures(10),
+    getMaterialTransfers(10),
+    getAccessoryRgpList(10),
+    getAccessoryScans(10),
+    accessoryQuery(`
+      SELECT 
+        (SELECT COUNT(*) FROM zip) as zipCount,
+        (SELECT COUNT(*) FROM doori) as dooriCount,
+        (SELECT COUNT(*) FROM dori_issue) as doriIssueCount
+    `).catch(() => [[{ zipCount: 0, dooriCount: 0, doriIssueCount: 0 }]])
+  ]);
+
+  const dbStatus = getAccessoryDbStatus();
+  const connected = isAccessoryConnected();
+
+  const tc = trimsCount?.[0] || {};
+  const totalZips = Number(tc.zipCount) || 0;
+  const totalDoris = Math.max(Number(tc.dooriCount) || 0, Number(tc.doriIssueCount) || 0);
+
+  // Materials analysis
+  const totalMaterials = allMaterials.length;
+  const totalStockQty = allMaterials.reduce((acc, m) => acc + (Number(m.stock) || 0), 0);
+  const lowStockItems = allMaterials.filter(m => {
+    const s = Number(m.stock);
+    const th = Number(m.threshold);
+    return !isNaN(s) && !isNaN(th) && s <= th;
+  });
+
+  const categoriesMap = {};
+  const locationsMap = {};
+  allMaterials.forEach(m => {
+    const cat = m.category || 'Other';
+    categoriesMap[cat] = (categoriesMap[cat] || 0) + 1;
+    const loc = m.location || 'Main Godown';
+    locationsMap[loc] = (locationsMap[loc] || 0) + 1;
+  });
+
+  // Actionable Solutions Generator
+  const solutions = [];
+
+  // Solution 1: Low Stock Replenishment
+  if (lowStockItems.length > 0) {
+    solutions.push({
+      type: 'RESTOCK_ALERT',
+      severity: 'HIGH',
+      title: `Critical Re-order Alert for ${lowStockItems.length} Materials`,
+      summary: `${lowStockItems.length} accessory items have reached or breached threshold levels.`,
+      action: 'Generate purchase orders to prevent stitching line starvation.',
+      items: lowStockItems.slice(0, 5).map(m => ({
+        id: m.id,
+        name: m.name,
+        stock: m.stock,
+        threshold: m.threshold,
+        unit: m.unit,
+        location: m.location
+      }))
+    });
+  } else {
+    solutions.push({
+      type: 'STOCK_HEALTH',
+      severity: 'NORMAL',
+      title: 'Healthy Stock Buffer',
+      summary: 'All registered accessory materials are above critical threshold limits.',
+      action: 'Continue periodic stock audit.'
+    });
+  }
+
+  // Solution 2: Weight Verification Quality & Approvals
+  if (weightSummary && weightSummary.pendingCount > 0) {
+    solutions.push({
+      type: 'APPROVAL_REQUIRED',
+      severity: 'MEDIUM',
+      title: `${weightSummary.pendingCount} Weight Captures Pending Quality Sign-Off`,
+      summary: 'Weight scale entries recorded but pending formal QA approval.',
+      action: 'Review and approve digital weight logs in the accessory portal.'
+    });
+  } else if (weightSummary && weightSummary.totalEntries > 0) {
+    solutions.push({
+      type: 'WEIGHT_VERIFIED',
+      severity: 'NORMAL',
+      title: 'Digital Scale Integration 100% Operational',
+      summary: `${weightSummary.totalEntries} entries logged totaling ${weightSummary.totalNetKg} kg net with 100% QA verified status.`,
+      action: 'Tare weight calibration is healthy.'
+    });
+  }
+
+  // Solution 3: RGP Vendor Return Tracking
+  const pendingRgps = recentRgps.filter(r => r.expectedReturnDate && new Date(r.expectedReturnDate) <= new Date());
+  if (pendingRgps.length > 0) {
+    solutions.push({
+      type: 'RGP_OVERDUE',
+      severity: 'MEDIUM',
+      title: `${pendingRgps.length} Returnable Gate Passes Due for Recovery`,
+      summary: 'Materials sent to external stitching/embroidery vendors have reached expected return date.',
+      action: 'Follow up with vendor to reconcile returned goods with gate inward scan.'
+    });
+  }
+
+  return {
+    connected,
+    dbStatus,
+    summary: {
+      totalMaterials,
+      totalStockQty,
+      lowStockCount: lowStockItems.length,
+      categoriesCount: Object.keys(categoriesMap).length,
+      locationsCount: Object.keys(locationsMap).length,
+      totalWeightEntries: weightSummary?.totalEntries || 0,
+      totalNetWeightKg: weightSummary?.totalNetKg || 0,
+      totalVerifiedPieces: weightSummary?.totalPieces || 0,
+      totalZips,
+      totalDoris,
+      totalTransfers: recentTransfers.length,
+      totalRgps: recentRgps.length,
+      totalScans: recentScans.length
+    },
+    categories: categoriesMap,
+    locations: locationsMap,
+    lowStockItems,
+    weightSummary,
+    recentWeights,
+    recentTransfers,
+    recentRgps,
+    recentScans,
+    solutions
+  };
+}
+
+/**
+ * 10. ELEGANT MARKDOWN BUILDERS FOR PULSEBOT AI
  */
 
 export function formatWeightRecordsToMarkdown(records, lotNo = '') {
@@ -261,7 +461,7 @@ export function formatWeightRecordsToMarkdown(records, lotNo = '') {
     const pkts = r.packets || '-';
     const loc = r.storeLocation || 'Main Store';
     const status = r.status || 'Verified';
-    const approval = r.approvalStatus === 'Approved' ? '✅ Approved' : (r.approvalStatus || 'Pending');
+    const approval = (r.approvalStatus || '').toLowerCase() === 'approved' ? '✅ Approved' : (r.approvalStatus || 'Pending');
 
     md += `| ${itemCell} | **${net} kg** | ${gross} kg | ${wtPerPc}g | **${pcs}** | ${pkts} | ${loc} | ${status} | ${approval} |\n`;
   });
@@ -322,6 +522,116 @@ export function formatMaterialsToMarkdown(materials, title = 'Accessory Material
 
   if (materials.length > 30) {
     md += `\n*Showing top 30 of ${materials.length} total materials in inventory.*\n`;
+  }
+
+  return md;
+}
+
+export function formatLowStockToMarkdown(items) {
+  if (!items || items.length === 0) {
+    return `✅ **Stock Health Good:** Koi bhi accessory material low stock ya critical threshold par nahi hai.`;
+  }
+
+  let md = `### 🚨 Critical Low Stock Materials & Re-order Alerts\n\n`;
+  md += `| Code | Material Name | Current Stock | Minimum Threshold | Unit | Godown Location | Solution / Re-order Action |\n`;
+  md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+
+  items.forEach(m => {
+    const deficit = Math.max(0, (Number(m.threshold) || 0) - (Number(m.stock) || 0));
+    const reorderSuggest = deficit > 0 ? `Order min **${deficit * 2 || 100} ${m.unit || 'Pcs'}**` : `Replenish buffer`;
+    md += `| \`${m.id}\` | **${m.name}** | 🔴 **${m.stock}** | ${m.threshold} | ${m.unit || 'Pcs'} | ${m.location || 'Godown'} | ${reorderSuggest} |\n`;
+  });
+
+  md += `\n💡 **Action Plan:** In sabhi items ka PO turant generate karein taaki stitching aur finishing line par delay na ho.\n`;
+  return md;
+}
+
+export function formatMaterialTransfersToMarkdown(transfers) {
+  if (!transfers || transfers.length === 0) {
+    return `*No recent godown material transfers recorded.*`;
+  }
+
+  let md = `### 🚚 Recent Warehouse / Godown Location Transfers\n\n`;
+  md += `| Code | Material Name | From Location | To Location | Qty | Operator | Transferred At |\n`;
+  md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+
+  transfers.forEach(t => {
+    const dateStr = t.transferredAt ? new Date(t.transferredAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '-';
+    md += `| \`${t.materialCode}\` | **${t.materialName}** | ${t.fromLocation || '-'} | ➡️ **${t.toLocation || '-'}** | ${t.quantity} (${t.transferType || 'packet'}) | ${t.operator || 'Staff'} | ${dateStr} |\n`;
+  });
+
+  return md;
+}
+
+export function formatRgpToMarkdown(rgpList) {
+  if (!rgpList || rgpList.length === 0) {
+    return `*No Returnable Gate Passes (RGP) found.*`;
+  }
+
+  let md = `### 📋 Returnable Gate Passes (RGP) - External Outpasses\n\n`;
+  md += `| RGP No | Vendor | Item / Purpose | Department | Expected Return | Prepared By | Auth By |\n`;
+  md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+
+  rgpList.forEach(r => {
+    const rgpNo = `\`${r.rgpNo || r.id}\``;
+    const purpose = r.purpose ? `${r.rgpType || 'Trim'} (${r.purpose})` : (r.rgpType || 'Accessory');
+    const returnDate = r.expectedReturnDate || 'Open';
+    md += `| ${rgpNo} | **${r.vendor}** | ${purpose} | ${r.department || 'Stitching'} | **${returnDate}** | ${r.preparedBy || '-'} | ${r.authorizedBy || '-'} |\n`;
+  });
+
+  return md;
+}
+
+export function formatScansToMarkdown(scans) {
+  if (!scans || scans.length === 0) {
+    return `*No inward barcode scans recorded.*`;
+  }
+
+  let md = `### 🔍 Inward Barcode Scans & Gate Receiving\n\n`;
+  md += `| Lot No | Material Name | Scan Type | Qty | Supplier | Inspector | Scanned At |\n`;
+  md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+
+  scans.forEach(s => {
+    const dateStr = s.scanned_at ? new Date(s.scanned_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '-';
+    md += `| **${s.lot_number || '-'}** | ${s.material_name || '-'} | \`${s.scan_type || 'material_in'}\` | **${s.quantity || 0}** | ${s.supplier_name || '-'} | ${s.person_name || '-'} | ${dateStr} |\n`;
+  });
+
+  return md;
+}
+
+/**
+ * 11. COMPLETE ACCESSORY STORAGE OVERVIEW TO MARKDOWN
+ */
+export function formatAccessoryStorageOverviewToMarkdown(overview) {
+  const { connected, dbStatus, summary, lowStockItems, solutions } = overview;
+
+  let md = `### 🧰 Accessory SQL Storage & Management Intelligence Dashboard\n\n`;
+
+  // Database Connection Badge
+  md += `* 🌐 **Database:** \`${dbStatus.database}\` on \`${dbStatus.host}:${dbStatus.port}\`\n`;
+  md += `* ⚡ **Live Status:** ${connected ? '🟢 **ONLINE & FULLY CONNECTED**' : '🔴 **DISCONNECTED**'}\n`;
+  md += `* 📊 **Registered Materials:** **${summary.totalMaterials} Items** across **${summary.categoriesCount} Categories**\n`;
+  md += `* 📦 **Total Inventory Units:** **${Number(summary.totalStockQty).toLocaleString()} Units** stored across **${summary.locationsCount} Godown Locations**\n`;
+  md += `* ⚖️ **Weight Scale Records:** **${summary.totalWeightEntries} Entries** (**${summary.totalNetWeightKg} kg Net** / **${Number(summary.totalVerifiedPieces).toLocaleString()} Verified Pcs**)\n`;
+  md += `* ✂️ **Trim Allocations:** **${summary.totalZips} Zip Records** • **${summary.totalDoris} Dori Records**\n`;
+  md += `* 🚚 **Warehouse Movements:** **${summary.totalTransfers} Material Transfers** • **${summary.totalRgps} Returnable Gate Passes**\n\n`;
+  md += `---\n\n`;
+
+  // Solutions Section
+  if (solutions && solutions.length > 0) {
+    md += `### 💡 PulseBot AI Operational Solutions & Recommendations\n\n`;
+    solutions.forEach((sol, i) => {
+      const icon = sol.severity === 'HIGH' ? '🚨' : sol.severity === 'MEDIUM' ? '⚠️' : '✅';
+      md += `#### ${icon} Solution ${i + 1}: ${sol.title}\n`;
+      md += `* **Analysis:** ${sol.summary}\n`;
+      md += `* **Action Required:** ${sol.action}\n\n`;
+    });
+    md += `---\n\n`;
+  }
+
+  // Low Stock Section if any
+  if (lowStockItems && lowStockItems.length > 0) {
+    md += formatLowStockToMarkdown(lowStockItems) + '\n\n';
   }
 
   return md;

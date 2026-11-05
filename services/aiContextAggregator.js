@@ -17,8 +17,14 @@ let lotIndexMap = null;
 // In-memory cache for SQL accessory data
 let cachedSqlData = {
   materials: [],
+  weightCaptures: [],
+  transfers: [],
+  rgps: [],
+  scans: [],
   lotZips: new Map(),
   lotDooris: new Map(),
+  rawZips: [],
+  rawDooris: [],
   lastLoad: 0
 };
 
@@ -168,6 +174,22 @@ export async function getCachedSqlAccessoryData(forceRefresh = false) {
       ).catch(() => []);
     }
 
+    const weightCaptures = await accessoryQuery(
+      'SELECT id, materialCode, materialName, unit, category, supplier, lotNo, storeLocation, grossWeightKg, tareWeightKg, netWeightKg, weightPerPieceG, pieces, packets, barcodeId, status, approvalStatus, capturedAt FROM weight_capture ORDER BY capturedAt DESC, id DESC LIMIT 20'
+    ).catch(() => []);
+
+    const transfers = await accessoryQuery(
+      'SELECT id, materialCode, materialName, fromLocation, toLocation, quantity, transferType, operator, transferredAt FROM material_transfers ORDER BY transferredAt DESC LIMIT 10'
+    ).catch(() => []);
+
+    const rgps = await accessoryQuery(
+      'SELECT id, rgpNo, date, vendor, rgpType, department, purpose, expectedReturnDate, vehicleNo, preparedBy, authorizedBy, entries, createdAt FROM rgp ORDER BY createdAt DESC LIMIT 10'
+    ).catch(() => []);
+
+    const scans = await accessoryQuery(
+      'SELECT id, lot_number, scan_type, person_name, material_name, quantity, supplier_name, scanned_at FROM scans ORDER BY scanned_at DESC LIMIT 15'
+    ).catch(() => []);
+
     const lotZips = new Map();
     (zips || []).forEach(r => {
       const lot = String(r.Lot_Number || '').trim();
@@ -186,6 +208,10 @@ export async function getCachedSqlAccessoryData(forceRefresh = false) {
 
     cachedSqlData = {
       materials: materials || [],
+      weightCaptures: weightCaptures || [],
+      transfers: transfers || [],
+      rgps: rgps || [],
+      scans: scans || [],
       lotZips,
       lotDooris,
       rawZips: zips || [],
@@ -382,36 +408,56 @@ export async function buildAiAggregatedContext({
     };
   }
 
-  // 4. Accessory / Material Inventory Query Detection (SQL Database 'newdata.materials')
-  const isAccessoryInventoryQuery = /\b(material|materials|accessory|accessories|trims|inventory|godown|warehouse|location|threshold|alert|low\s*stock|stock|stock\s*report)\b/i.test(rawPrompt);
+  // 4. Accessory / Material Inventory Query Detection (SQL Database 'newdata')
+  const isAccessoryInventoryQuery = /\b(material|materials|accessory|accessories|trims|inventory|godown|warehouse|location|threshold|alert|low\s*stock|stock|stock\s*report|weight\s*capture|tulai|kanta|transfer|transfers|rgp|gate\s*pass|scan|scans)\b/i.test(rawPrompt);
   let accessoryInventorySection = '';
 
   if (isAccessoryInventoryQuery) {
     const lowStockItems = sqlMaterials.filter(m => (m.stock !== null && m.threshold !== null && Number(m.stock) <= Number(m.threshold)));
     const categoriesMap = {};
+    const locationsMap = {};
     sqlMaterials.forEach(m => {
       const cat = m.category || 'Uncategorized';
       categoriesMap[cat] = (categoriesMap[cat] || 0) + 1;
+      const loc = m.location || 'Store';
+      locationsMap[loc] = (locationsMap[loc] || 0) + 1;
     });
 
     // Check if user is asking about a specific item name (e.g. button, zip, rfk, fabric, elastic)
     const specificItems = sqlMaterials.filter(m => lowerPrompt.includes(String(m.name || '').toLowerCase()));
 
+    const wcList = sqlData.weightCaptures || [];
+    const transfersList = sqlData.transfers || [];
+    const rgpList = sqlData.rgps || [];
+
     accessoryInventorySection = `
-=== VERIFIED SQL ACCESSORY & MATERIAL INVENTORY (DATABASE: NEWDATA.MATERIALS) ===
-Total Registered Accessory Materials: ${sqlMaterials.length} items
+=== VERIFIED SQL ACCESSORY & MATERIAL STORAGE (DATABASE: NEWDATA) ===
+Database: newdata (Live Connected on localhost:3306)
+Total Registered Accessory Materials: ${sqlMaterials.length} items across ${Object.keys(categoriesMap).length} categories
+Total Units in Stock: ${sqlMaterials.reduce((acc, m) => acc + (Number(m.stock) || 0), 0)} units
 Low Stock / Threshold Alerts: ${lowStockItems.length} items
 Category Breakdown: ${JSON.stringify(categoriesMap)}
+Warehouse Godown Locations (${Object.keys(locationsMap).length}): ${Object.keys(locationsMap).slice(0, 10).join(', ')}
+
+${lowStockItems.length > 0 ? `CRITICAL LOW STOCK ALERT ITEMS (REORDER REQUIRED):
+${lowStockItems.map(m => `- [${m.id}] ${m.name}: Stock ${m.stock} ${m.unit} (Threshold: ${m.threshold}) | Location: ${m.location || 'Godown'} -> Action: Generate PO immediately`).join('\n')}` : 'All accessory stock above threshold.'}
+
 ${specificItems.length > 0 ? `\nMatching Items For Query:\n${JSON.stringify(specificItems, null, 2)}` : ''}
 
-Threshold Alert Items:
-${lowStockItems.slice(0, 10).map(m => `- ${m.name} (${m.category}): Stock ${m.stock} ${m.unit} (Threshold: ${m.threshold}) | Location: ${m.location || 'Store'}`).join('\n')}
+DIGITAL WEIGHT SCALE (KANTA/TULAI) VERIFICATION RECORDS (${wcList.length} recent):
+${wcList.slice(0, 5).map(w => `- Lot ${w.lotNo || 'N/A'}: ${w.materialName} | Net: ${w.netWeightKg} kg (Gross: ${w.grossWeightKg} kg, Tare: ${w.tareWeightKg} kg) | Pieces: ${w.pieces} pcs | Wt/Pc: ${w.weightPerPieceG}g | Status: ${w.approvalStatus || 'Approved'} | Location: ${w.storeLocation}`).join('\n')}
 
-Top Accessory Inventory Sample:
-${sqlMaterials.slice(0, 15).map(m => `- ${m.name} | Category: ${m.category} | Stock: ${m.stock} ${m.unit} | Location: ${m.location || 'Main Store'} | Cost: ₹${m.cost || 0}`).join('\n')}
+WAREHOUSE TRANSFERS (${transfersList.length} recent):
+${transfersList.slice(0, 3).map(t => `- ${t.materialName} (${t.materialCode}): ${t.fromLocation} -> ${t.toLocation} | Qty: ${t.quantity} (${t.transferType}) by ${t.operator}`).join('\n')}
+
+RETURNABLE GATE PASSES (RGP) FOR VENDORS (${rgpList.length} recent):
+${rgpList.slice(0, 3).map(r => `- ${r.rgpNo}: Vendor ${r.vendor} | Type: ${r.rgpType} (${r.purpose}) | Expected Return: ${r.expectedReturnDate || 'N/A'}`).join('\n')}
 ================================================================================
-CRITICAL DIRECTIVE FOR ACCESSORY / MATERIAL INVENTORY:
-When user asks about materials, accessories, stock levels, or store locations, use the verified SQL records above. Report exact stock numbers, units, locations, and highlight any threshold warnings.
+CRITICAL DIRECTIVE FOR ACCESSORY STORAGE & SOLUTIONS:
+When user asks about materials, accessories, stock levels, weight capture, transfers, or RGP outpasses:
+1. Use the verified live SQL records above.
+2. Report exact stock numbers, units, locations, weight verification numbers, and highlight threshold warnings.
+3. ALWAYS provide structured, practical solutions (e.g. reorder suggestions, QA approval checks, return pass tracking).
 `;
   }
 
