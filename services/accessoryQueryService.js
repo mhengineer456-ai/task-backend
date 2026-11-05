@@ -133,7 +133,7 @@ export async function searchIssueLogs(query = '', options = {}) {
     // 2. Extract Category (e.g. label, tag, dori, patch, button, zip, polybeg, etc.)
     let categoryTerm = null;
     if (lower) {
-      const catMatch = lower.match(/\b(labels?|tags?|doris?|patch(?:es)?|buttons?|zips?|zippers?|polybegs?|polybags?|tapes?|inners?|elastics?|cuffs?|washcare|stoppers?|pasting)\b/i);
+      const catMatch = lower.match(/\b(labels?|tags?|doris?|dooris?|patch(?:es)?|matel\s*patch|buttons?|zips?|zippers?|polybegs?|polybags?|begs?|tapes?|inners?|elastics?|cuffs?|washcare|stoppers?|pasting|ribit|ribbit|rivets?|eyelets?|i\.?let|fashion\s*patti|patti|spray|washal)\b/i);
       if (catMatch) categoryTerm = catMatch[1].replace(/s$/, '').replace(/es$/, '');
     }
 
@@ -141,11 +141,11 @@ export async function searchIssueLogs(query = '', options = {}) {
     const knownBrands = [
       'amiri', 'nike jacket', 'nike', 'tommy', 'zara', 'addidas brick jacket myshelter',
       'addidas tag brick', 'addidas brick', 'addidas flower jacket', 'addidas flower',
-      'addidas', 'lacoste jacket', 'lacoste', 'polo jacket', 'polo', 'armani', 'carhartt',
+      'addidas', 'adidas', 'lacoste jacket', 'lacoste', 'polo jacket', 'polo', 'armani', 'carhartt',
       'coach jacket', 'coach', 'diesel shirt', 'diesel', 'herms', 'represent',
       'north face', 'trapster', 'edge', 'scuffers', 'channal', 'burburry',
       'burbour jacket inner', 'loropiane', 'youngla', 'qc jacket', 'qc', 'fear of god',
-      'essentinal  jacket', 'essentinal', 'stussy', 'bonkers', 'bottega veneta',
+      'essentinal  jacket', 'essentinal', 'essentials', 'stussy', 'bonkers', 'bottega veneta',
       'acne studio', 'hacket', 'c.k', 'barbour', 'l.v'
     ];
     let brandMatch = null;
@@ -163,6 +163,13 @@ export async function searchIssueLogs(query = '', options = {}) {
       receiverMatch = knownReceivers.find(r => lower.includes(r));
     }
 
+    // 4b. Extract Department (e.g. cutting, stitching, packing, finishing, iron)
+    const knownDepts = ['cutting', 'stitching', 'packing', 'finishing', 'iron'];
+    let deptMatch = null;
+    if (lower) {
+      deptMatch = knownDepts.find(d => lower.includes(d));
+    }
+
     let sql = `SELECT * FROM issue_logs WHERE 1=1`;
     const params = [];
 
@@ -174,6 +181,11 @@ export async function searchIssueLogs(query = '', options = {}) {
     if (receiverMatch) {
       sql += ` AND (LOWER(receiverName) LIKE LOWER(?) OR LOWER(receiverDept) LIKE LOWER(?))`;
       params.push(`%${receiverMatch}%`, `%${receiverMatch}%`);
+    }
+
+    if (deptMatch) {
+      sql += ` AND (LOWER(receiverDept) LIKE LOWER(?) OR LOWER(receiverName) LIKE LOWER(?))`;
+      params.push(`%${deptMatch}%`, `%${deptMatch}%`);
     }
 
     if (brandMatch) {
@@ -288,26 +300,47 @@ export async function searchAccessoryMaterialsSmart(queryStr, options = {}) {
   const isTape = /\b(tapes?)\b/i.test(lower);
   const isDori = /\b(dori|doori)\b/i.test(lower);
   const isBone = /\b(bones?)\b/i.test(lower);
-  const isPolybag = /\b(polybegs?|polybags?)\b/i.test(lower);
+  const isPolybag = /\b(polybegs?|polybags?|begs?)\b/i.test(lower);
   const isElastic = /\b(elastics?)\b/i.test(lower);
   const isStopper = /\b(stoppers?)\b/i.test(lower);
   const isSpray = /\b(spray|sprays)\b/i.test(lower);
+  const isRivet = /\b(ribit|ribbit|rivets?)\b/i.test(lower);
+  const isPasting = /\b(pasting)\b/i.test(lower);
+  const isInner = /\b(inners?)\b/i.test(lower);
+  const isCuff = /\b(cuffs?)\b/i.test(lower);
+  const isEyelet = /\b(eyelets?|i\.?let)\b/i.test(lower);
+  const isFashionPatti = /\b(fashion\s*patti|patti|soft\s*patti)\b/i.test(lower);
+  const isWashal = /\b(washal)\b/i.test(lower);
 
   // Extract non-category keywords (to check if a specific brand/item is requested, e.g. "amiri tag" vs "total tag")
   const stopWords = new Set([
-    'k', 'ke', 'ka', 'ki', 'ko', 'me', 'mein', 'mre', 'mere', 'pass', 'paas',
-    'kitna', 'kitne', 'kitni', 'pda', 'pada', 'hai', 'h', 'with', 'photo', 'photos',
-    'image', 'images', 'pic', 'pics', 'picture', 'dikhao', 'batao', 'btana', 'show',
-    'tell', 'available', 'check', 'karo', 'krdo', 'please', 'total', 'all', 'sabhi',
-    'sbhi', 'detail', 'details', 'stock', 'inventory', 'godown', 'rack', 'location',
+    'k', 'ke', 'ka', 'ki', 'ko', 'me', 'mein', 'mre', 'mere', 'pass', 'paas', 'hamare', 'apne',
+    'kitna', 'kitne', 'kitni', 'pda', 'pada', 'pde', 'pade', 'pdi', 'padi', 'bacha', 'bache', 'bachi',
+    'hai', 'h', 'hain', 'tha', 'the', 'thi', 'hua', 'hue', 'hui',
+    'with', 'photo', 'photos', 'image', 'images', 'pic', 'pics', 'picture', 
+    'dikhao', 'dikhana', 'batao', 'btana', 'btao', 'bataiye', 'show', 'tell', 'available', 'check', 'karo', 'krdo', 'kariye', 
+    'please', 'plz', 'total', 'all', 'sab', 'sabhi', 'sbhi', 'pura', 'pure', 'puri', 'detail', 'details', 'stock', 'inventory', 
+    'godown', 'rack', 'location', 'maal', 'saman', 'kya', 'rakha', 'rakhe', 'rakhi', 'kaha', 'kahan', 'kuch', 'koi',
     'tag', 'tags', 'label', 'labels', 'patch', 'patches', 'button', 'buttons',
-    'tape', 'tapes', 'dori', 'bone', 'polybeg', 'polybag', 'elastic', 'stopper', 'spray'
+    'tape', 'tapes', 'dori', 'doori', 'bone', 'polybeg', 'polybag', 'beg', 'elastic', 'stopper', 'spray', 'trims', 'accessory', 'accessories',
+    'store', 'warehouse', 'factory', 'floor', 'room', 'karkhana', 'karkhane', 'konsa', 'konse', 'konsi', 'abhi', 'abtak', 'abhitak', 'aaj', 'kal', 'parso'
   ]);
   const brandTokens = lower.replace(/[^a-z0-9\s_-]/g, ' ').split(/\s+/).filter(t => t.length >= 2 && !stopWords.has(t));
 
   try {
-    // Case A: Query is for an entire category (with or without a specific brand)
-    if (isTag || isLabel || isPatch || isButton || isTape || isDori || isBone || isPolybag || isElastic || isStopper || isSpray) {
+    // Case A.0: Specific Godown Rack inquiry (e.g. "rack 54 me kya hai", "rack 92", "rack no 1")
+    const rackMatch = lower.match(/\b(?:rack|rk)\s*(?:no\.?|#)?\s*([0-9a-z_-]+)\b/i);
+    if (rackMatch && !isTag && !isLabel && !isPatch && !isButton) {
+      const rackNo = rackMatch[1].trim();
+      const rackSql = `SELECT * FROM materials WHERE LOWER(location) LIKE ? ORDER BY stock DESC LIMIT 100`;
+      const rackRows = await accessoryQuery(rackSql, [`%rack ${rackNo}%`]);
+      if (rackRows && rackRows.length > 0) return rackRows;
+      const rackRows2 = await accessoryQuery(rackSql, [`%${rackNo}%`]);
+      if (rackRows2 && rackRows2.length > 0) return rackRows2;
+    }
+
+    // Case A.1: Query is for an entire category (with or without a specific brand)
+    if (isTag || isLabel || isPatch || isButton || isTape || isDori || isBone || isPolybag || isElastic || isStopper || isSpray || isRivet || isPasting || isInner || isCuff || isEyelet || isFashionPatti || isWashal) {
       let catClauses = [];
       let catParams = [];
 
@@ -333,8 +366,8 @@ export async function searchAccessoryMaterialsSmart(queryStr, options = {}) {
         catClauses.push('LOWER(category) LIKE ?');
         catParams.push('%bone%');
       } else if (isPolybag) {
-        catClauses.push('(LOWER(category) LIKE ? OR LOWER(category) LIKE ?)');
-        catParams.push('%polybeg%', '%polybag%');
+        catClauses.push('(LOWER(category) LIKE ? OR LOWER(category) LIKE ? OR LOWER(category) LIKE ?)');
+        catParams.push('%polybeg%', '%polybag%', '%beg%');
       } else if (isElastic) {
         catClauses.push('LOWER(category) LIKE ?');
         catParams.push('%elastic%');
@@ -344,6 +377,27 @@ export async function searchAccessoryMaterialsSmart(queryStr, options = {}) {
       } else if (isSpray) {
         catClauses.push('LOWER(category) LIKE ?');
         catParams.push('%spray%');
+      } else if (isRivet) {
+        catClauses.push('(LOWER(category) LIKE ? OR LOWER(category) LIKE ?)');
+        catParams.push('%ribit%', '%ribbit%');
+      } else if (isPasting) {
+        catClauses.push('LOWER(category) LIKE ?');
+        catParams.push('%pasting%');
+      } else if (isInner) {
+        catClauses.push('LOWER(category) LIKE ?');
+        catParams.push('%inner%');
+      } else if (isCuff) {
+        catClauses.push('LOWER(category) LIKE ?');
+        catParams.push('%cuff%');
+      } else if (isEyelet) {
+        catClauses.push('LOWER(category) LIKE ?');
+        catParams.push('%let%');
+      } else if (isFashionPatti) {
+        catClauses.push('(LOWER(category) LIKE ? OR LOWER(category) LIKE ?)');
+        catParams.push('%patti%', '%fashion patti%');
+      } else if (isWashal) {
+        catClauses.push('LOWER(category) LIKE ?');
+        catParams.push('%washal%');
       }
 
       // If a brand token was also present (e.g. "amiri tag"), filter by that brand as well
@@ -358,6 +412,17 @@ export async function searchAccessoryMaterialsSmart(queryStr, options = {}) {
         const sql = `SELECT * FROM materials WHERE (${catClauses.join(' OR ')}) AND (${brandConditions.join(' OR ')}) ORDER BY stock DESC LIMIT 200`;
         const brandRows = await accessoryQuery(sql, [...catParams, ...brandParams]);
         if (brandRows && brandRows.length > 0) return brandRows;
+
+        // If specific brand was asked with this category, but has 0 items in this category:
+        // Check if that brand exists in OTHER categories (e.g. user asks "amiri label" -> returns AMIRI Tags & Patch)
+        const anyBrandSql = `SELECT * FROM materials WHERE (${brandConditions.join(' OR ')}) ORDER BY stock DESC LIMIT 50`;
+        const anyBrandRows = await accessoryQuery(anyBrandSql, brandParams);
+        if (anyBrandRows && anyBrandRows.length > 0) {
+          return anyBrandRows;
+        }
+
+        // If brand was searched and nothing found at all, return empty (don't dump all unrelated category rows!)
+        return [];
       }
 
       // If no specific brand or brand matched nothing, return ALL items for this category!
@@ -398,17 +463,10 @@ export async function getTrimsByLot(lotNo) {
       [clean, `%${clean}%`]
     ).catch(() => []);
 
-    let doris = await accessoryQuery(
-      `SELECT * FROM dori_issue WHERE TRIM(LOWER(Lot_Number)) = TRIM(LOWER(?)) OR TRIM(LOWER(Lot_Number)) LIKE TRIM(LOWER(?)) ORDER BY id DESC`,
+    const doris = await accessoryQuery(
+      `SELECT * FROM doori WHERE TRIM(LOWER(Lot_Number)) = TRIM(LOWER(?)) OR TRIM(LOWER(Lot_Number)) LIKE TRIM(LOWER(?)) ORDER BY id DESC`,
       [clean, `%${clean}%`]
     ).catch(() => []);
-
-    if (!doris || doris.length === 0) {
-      doris = await accessoryQuery(
-        `SELECT * FROM doori WHERE TRIM(LOWER(Lot_Number)) = TRIM(LOWER(?)) OR TRIM(LOWER(Lot_Number)) LIKE TRIM(LOWER(?)) ORDER BY id DESC`,
-        [clean, `%${clean}%`]
-      ).catch(() => []);
-    }
 
     return { zips: zips || [], doris: doris || [] };
   } catch (err) {
