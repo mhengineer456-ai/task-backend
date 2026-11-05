@@ -2732,7 +2732,15 @@ Directives:
       if (isLowStock) {
         md = formatLowStockToMarkdown(materials);
       } else if (isSpecificSearch) {
-        const cleanTitle = materials[0]?.category || materials[0]?.brand || materials[0]?.name || p;
+        const isLabelCat = /\b(labels?)\b/i.test(lower);
+        const isTagCat = /\b(tags?)\b/i.test(lower);
+        const isButtonCat = /\b(buttons?)\b/i.test(lower);
+        const isPatchCat = /\b(patch(?:es)?)\b/i.test(lower);
+        let cleanTitle = materials[0]?.category || materials[0]?.brand || materials[0]?.name || p;
+        if (isLabelCat) cleanTitle = 'LABELS';
+        else if (isTagCat) cleanTitle = 'TAGS';
+        else if (isButtonCat) cleanTitle = 'BUTTONS';
+        else if (isPatchCat) cleanTitle = 'PATCHES';
         md = formatMaterialDetailCardToMarkdown(materials, cleanTitle, userAskedPhoto);
       } else {
         md = formatMaterialsToMarkdown(materials, title);
@@ -2750,8 +2758,14 @@ Directives:
         contextDescription = `RACK ${rackMatch[1].toUpperCase()} INVENTORY: Total ${materials.length} items and ${Number(totalStockSum).toLocaleString()} units stored in this rack`;
       }
 
+      const isLabelQuery = /\b(labels?)\b/i.test(lower);
+      const isTagQuery = /\b(tags?)\b/i.test(lower);
+
       const sysPrompt = `You are PulseBot AI, the dedicated accessory & trims inventory copilot for Factory Suite Pro.
 The user asked: "${p}".
+CRITICAL HINGLISH PARSING DIRECTIVE:
+- Colloquial phrases like "mra pass", "mera pass", "mere paas", "humare paas", "kitna stock pda hai" mean "in factory stock / with us". NEVER echo or hallucinate "MRA PASS LABEL" or treat "MRA PASS" as a brand or material name!
+- Directly address the requested category: ${isLabelQuery ? 'LABELS' : isTagQuery ? 'TAGS' : 'the requested trims/materials'}. Say naturally: "Aapke paas Labels ka current verified stock niche diya gaya hai:"
 Answer clearly, professionally, and warmly in natural Hindi / Hinglish matching the user.
 
 VERIFIED ACCESSORY SQL DATA SUMMARY (DATABASE: railway.materials):

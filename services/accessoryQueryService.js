@@ -314,13 +314,14 @@ export async function searchAccessoryMaterialsSmart(queryStr, options = {}) {
 
   // Extract non-category keywords (to check if a specific brand/item is requested, e.g. "amiri tag" vs "total tag")
   const stopWords = new Set([
-    'k', 'ke', 'ka', 'ki', 'ko', 'me', 'mein', 'mre', 'mere', 'pass', 'paas', 'hamare', 'apne',
-    'kitna', 'kitne', 'kitni', 'pda', 'pada', 'pde', 'pade', 'pdi', 'padi', 'bacha', 'bache', 'bachi',
-    'hai', 'h', 'hain', 'tha', 'the', 'thi', 'hua', 'hue', 'hui',
-    'with', 'photo', 'photos', 'image', 'images', 'pic', 'pics', 'picture', 
-    'dikhao', 'dikhana', 'batao', 'btana', 'btao', 'bataiye', 'show', 'tell', 'available', 'check', 'karo', 'krdo', 'kariye', 
+    'k', 'ke', 'ka', 'ki', 'ko', 'me', 'mein', 'mre', 'mere', 'mera', 'meri', 'mra', 'merko', 'mereko', 'mujhe', 'mujhko',
+    'pass', 'paas', 'pas', 'hamare', 'humare', 'hamara', 'humara', 'hamari', 'humari', 'hume', 'humko', 'apne', 'apna', 'apni',
+    'kitna', 'kitne', 'kitni', 'pda', 'pada', 'pde', 'pade', 'pdi', 'padi', 'padaa', 'pdaa', 'bacha', 'bache', 'bachi', 'rakha', 'rakhe', 'rakhi',
+    'hai', 'h', 'hain', 'tha', 'the', 'thi', 'hua', 'hue', 'hui', 'hoga', 'hoge', 'hogi',
+    'with', 'photo', 'photos', 'image', 'images', 'pic', 'pics', 'picture', 'tasveer', 'tasvir',
+    'dikhao', 'dikhana', 'batao', 'btana', 'btao', 'bataiye', 'show', 'tell', 'available', 'check', 'karo', 'krdo', 'kariye', 'dekho', 'dekhna', 'bhejo',
     'please', 'plz', 'total', 'all', 'sab', 'sabhi', 'sbhi', 'pura', 'pure', 'puri', 'detail', 'details', 'stock', 'inventory', 
-    'godown', 'rack', 'location', 'maal', 'saman', 'kya', 'rakha', 'rakhe', 'rakhi', 'kaha', 'kahan', 'kuch', 'koi',
+    'godown', 'rack', 'location', 'maal', 'saman', 'kya', 'kaha', 'kahan', 'kuch', 'koi', 'bhi', 'sirf',
     'tag', 'tags', 'label', 'labels', 'patch', 'patches', 'button', 'buttons',
     'tape', 'tapes', 'dori', 'doori', 'bone', 'polybeg', 'polybag', 'beg', 'elastic', 'stopper', 'spray', 'trims', 'accessory', 'accessories',
     'store', 'warehouse', 'factory', 'floor', 'room', 'karkhana', 'karkhane', 'konsa', 'konse', 'konsi', 'abhi', 'abtak', 'abhitak', 'aaj', 'kal', 'parso',
@@ -428,7 +429,11 @@ export async function searchAccessoryMaterialsSmart(queryStr, options = {}) {
           return anyBrandRows;
         }
 
-        // If brand was searched and nothing found at all, return empty (don't dump all unrelated category rows!)
+        // If brand was searched and nothing found anywhere in DB, fall back to returning ALL items of this category!
+        // (Because user definitely asked for this category, e.g. "LABEL", and the brand token was likely a conversational word or typo)
+        const catSqlFallback = `SELECT * FROM materials WHERE (${catClauses.join(' OR ')}) ORDER BY stock DESC LIMIT 300`;
+        const allCatRowsFallback = await accessoryQuery(catSqlFallback, catParams);
+        if (allCatRowsFallback && allCatRowsFallback.length > 0) return allCatRowsFallback;
         return [];
       }
 
