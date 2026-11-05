@@ -2573,7 +2573,7 @@ VERIFIED ACCESSORY SQL DATA SUMMARY (DATABASE: railway.materials):
 
 ${isBroadCategory ? `CRITICAL DIRECTIVE FOR COMPLETE INVENTORY LIST:
 - Greet warmly and state the Grand Total Stock (${Number(totalStockSum).toLocaleString()} units across ${materials.length} items and ${Number(totalPacketsSum).toLocaleString()} packets) prominently.
-- Note that the complete verified inventory table of all ${materials.length} items with serial numbers, codes, exact stock, packets, and godown rack locations is displayed below.
+- Note that the complete verified inventory table of all ${materials.length} items with serial numbers, item names, and current stock is displayed below.
 - Note that all ${itemsWithImg.length} verified item photos are loaded in the interactive gallery below.
 - DO NOT attempt to write 65 bullet points one by one in text (the complete table is appended automatically).` : `ITEMS:
 ${materials.map(m => `• Item: ${m.name} | Category: ${m.category} | Stock: ${Number(m.stock).toLocaleString()} ${m.unit || 'Pcs'} (${m.packets || 1} Pkts) | Location: ${m.location}`).join('\n')}`}

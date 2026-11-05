@@ -642,17 +642,15 @@ export function formatMaterialDetailCardToMarkdown(items, searchTerm = '', userA
     md += `\n`;
   }
 
-  md += `| # | Code | Item Name | Category | Current Stock | Packets | Godown Rack Location |\n`;
-  md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+  md += `| # | Item Name | Current Stock |\n`;
+  md += `| :--- | :--- | :--- |\n`;
 
   const displayLimit = Math.min(items.length, 120);
   items.slice(0, displayLimit).forEach((m, idx) => {
-    const code = m.id ? `\`${m.id}\`` : '-';
     const isLow = Number(m.stock || 0) <= Number(m.threshold || 0);
     const stockDisplay = isLow ? `⚠️ 🔴 **${Number(m.stock || 0).toLocaleString()} ${m.unit || 'Pcs'}** (Low)` : `🟢 **${Number(m.stock || 0).toLocaleString()} ${m.unit || 'Pcs'}**`;
-    const loc = m.location || 'Main Store';
 
-    md += `| ${idx + 1} | ${code} | **${m.name}** | ${m.category || 'Accessory'} | ${stockDisplay} | **${m.packets || 1} Pkts** | 📍 \`${loc}\` |\n`;
+    md += `| ${idx + 1} | **${m.name}** | ${stockDisplay} |\n`;
   });
 
   if (items.length > displayLimit) {
@@ -662,7 +660,7 @@ export function formatMaterialDetailCardToMarkdown(items, searchTerm = '', userA
   }
 
   // Summary solution sentence
-  md += `💡 **Quick Summary & Solution:** Aapke paas total **${Number(totalStockSum).toLocaleString()} units** available hain. Material physical verification ke liye di gayi godown rack locations check karein.\n`;
+  md += `💡 **Quick Summary:** Aapke paas total **${Number(totalStockSum).toLocaleString()} units** available hain. Sabhi verified photos niche photo gallery me available hain.\n`;
 
   return md;
 }
@@ -673,17 +671,14 @@ export function formatMaterialsToMarkdown(materials, title = 'Accessory Material
   }
 
   let md = `### 🧵 ${title}\n\n`;
-  md += `| Code | Material Name | Category | Stock | Unit | Color | Location | PO Number |\n`;
-  md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+  md += `| # | Material Name | Current Stock |\n`;
+  md += `| :--- | :--- | :--- |\n`;
 
-  materials.slice(0, 30).forEach(m => {
-    const code = m.id ? `\`${m.id}\`` : '-';
+  materials.slice(0, 50).forEach((m, idx) => {
     const isLow = Number(m.stock || 0) <= Number(m.threshold || 0);
-    const stockDisplay = isLow ? `⚠️ **${m.stock}** (Low)` : `**${m.stock}**`;
-    const loc = m.location || 'Store';
-    const po = m.poNumber || '-';
+    const stockDisplay = isLow ? `⚠️ 🔴 **${Number(m.stock || 0).toLocaleString()} ${m.unit || 'Pcs'}** (Low)` : `🟢 **${Number(m.stock || 0).toLocaleString()} ${m.unit || 'Pcs'}**`;
 
-    md += `| ${code} | **${m.name || '-'}** | ${m.category || '-'} | ${stockDisplay} | ${m.unit || 'Pcs'} | ${m.color || 'Default'} | ${loc} | ${po} |\n`;
+    md += `| ${idx + 1} | **${m.name || '-'}** | ${stockDisplay} |\n`;
   });
 
   if (materials.length > 30) {
