@@ -845,9 +845,9 @@ CRITICAL FORMATTING GUIDELINES (FOR RESPONSIVE WEB & MOBILE):
 
       const enhancedInstruction = systemInstruction ? `${systemInstruction}\n\n${cleanFormattingDirectives}` : cleanFormattingDirectives;
 
-      const callGeminiOnce = async (modelName = 'gemini-3.5-flash-lite') => {
+      const callGeminiOnce = async (modelName = 'gemini-2.5-flash') => {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 12000);
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
         try {
           const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
           const res = await fetch(url, {
@@ -858,7 +858,7 @@ CRITICAL FORMATTING GUIDELINES (FOR RESPONSIVE WEB & MOBILE):
               contents,
               generationConfig: {
                 temperature: 0.25,
-                maxOutputTokens: 8192
+                maxOutputTokens: 2048
               }
             }),
             signal: controller.signal
@@ -880,8 +880,8 @@ CRITICAL FORMATTING GUIDELINES (FOR RESPONSIVE WEB & MOBILE):
         return /(?:active nahi hai|data available nahi hai|record nahi mila|not found in(?: the)? active|not available in live production|kya aap confirm kar sakte hain|purana\/closed lot hai)/i.test(text);
       };
 
-      // Test active, verified working flash endpoints in priority order
-      const modelCandidates = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-flash-latest', 'gemini-2.5-flash-lite'];
+      // Test fast verified flash endpoint
+      const modelCandidates = ['gemini-2.5-flash', 'gemini-flash-latest'];
       let answer = null;
       for (const model of modelCandidates) {
         answer = await callGeminiOnce(model);
@@ -903,41 +903,39 @@ CRITICAL FORMATTING GUIDELINES (FOR RESPONSIVE WEB & MOBILE):
     }
   }
 
-  // If rich, verified factory fallback text is already available, prefer it over remote blind webhooks!
-  if (fallbackText && fallbackText.length > 50 && !fallbackText.includes('Factory Suite Pro AI Engine is active')) {
+  // If rich, verified factory fallback text is already available, prefer it instantly!
+  if (fallbackText && fallbackText.length > 20 && !fallbackText.includes('Factory Suite Pro AI Engine is active')) {
     return fallbackText;
   }
 
-  // Fallback to n8n multi-sheet AI webhook (factory-ai-agents has full multi-sheet Google Sheets integration)
-  try {
-    const n8nUrl = config.n8nChatWebhookUrl || 'http://localhost:5678/webhook/factory-ai-agents';
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 18000);
-    const n8nRes = await fetch(n8nUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chatInput: prompt,
-        message: prompt,
-        prompt: prompt,
-        systemInstruction,
-        history: conversationHistory
-      }),
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-    if (n8nRes.ok) {
-      const data = await n8nRes.json().catch(() => null);
-      const text = data?.answer || data?.output || data?.text || data?.message;
-      if (text && typeof text === 'string' && text.trim()) {
-        const isHallucinated = /(?:active nahi hai|data available nahi hai|record nahi mila|kya aap confirm kar sakte hain)/i.test(text);
-        if (!isHallucinated || !fallbackText) {
-          return text.trim();
+  // Fallback to n8n multi-sheet AI webhook only if configured and not localhost on production
+  const n8nUrl = config.n8nChatWebhookUrl || '';
+  const isLocalN8n = /localhost|127\.0\.0\.1/i.test(n8nUrl);
+  if (n8nUrl && (!isLocalN8n || process.env.NODE_ENV !== 'production')) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2500);
+      const n8nRes = await fetch(n8nUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chatInput: prompt,
+          message: prompt,
+          conversationHistory
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (n8nRes.ok) {
+        const n8nData = await n8nRes.json().catch(() => null);
+        const reply = n8nData?.output || n8nData?.text || n8nData?.message || n8nData?.response;
+        if (reply && String(reply).trim()) {
+          return String(reply).trim();
         }
       }
+    } catch (n8nErr) {
+      console.warn('n8n webhook fallback notice:', n8nErr.message);
     }
-  } catch (err) {
-    console.warn('n8n fallback notice:', err.message);
   }
 
   return fallbackText || 'Factory Suite Pro AI Engine is active and ready to assist you.';

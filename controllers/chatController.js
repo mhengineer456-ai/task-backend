@@ -986,12 +986,14 @@ export const askAiAssistant = async (req, res) => {
         }
         isN8nConnected = true;
       } else {
-        const targetUrl = config.n8nChatWebhookUrl || 'http://localhost:5678/webhook/factory-ai-agents';
-        const fallbackUrl = config.n8nTestWebhookUrl || 'http://localhost:5678/webhook/factory-ai-agents';
+        const targetUrl = config.n8nChatWebhookUrl || '';
+        const fallbackUrl = config.n8nTestWebhookUrl || '';
 
         const callN8n = async (url) => {
+          if (!url) return null;
+          if (/localhost|127\.0\.0\.1/i.test(url) && process.env.NODE_ENV === 'production') return null;
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 35000);
+          const timeoutId = setTimeout(() => controller.abort(), 3000);
 
           try {
             const response = await fetch(url, {
