@@ -2251,12 +2251,15 @@ export async function processUniversalQuery(prompt, context = {}) {
   // 0C. ACCESSORY SOFTWARE SQL DATABASE INTELLIGENCE & SOLUTIONS
   // Tables: materials, weight_capture, issue_logs, zip, doori, material_transfers, rgp, scans
   // =========================================================================
+  // Identify if query is specifically asking about Garment Production, Cutting, Stitching, Packing, or Job Orders
+  const isGarmentProductionQuery = /\b(production|cutting|cut|stitching|stitch|sewing|packing|pack|wip|stage|stages|milestones?|timeline|lifecycle|progress|journey|kahan\s*tak\s*pahuncha|kahan\s*tak\s*pahucha|complete\s*status|completed|pending\s*lots?|active\s*lots?|job\s*orders?|master\s*orders?|fabric|embroidery|sampling|design\s*artwork|artwork)\b/i.test(lower);
+
   // Dynamic Smart Search Check: If query asks for stock, brand, or photo of an item, test if it matches materials table
   let preMatchedMaterials = null;
   const looksLikeMaterialInquiry = (
     /\b(stock|inventory|godown|rack|location|p(?:a|d)a\s*h|available|kitna|kitne|photo|image|pic|dikhao|bhejo|btana|batao|brand)\b/i.test(lower) ||
     /\b(label|labels|tag|tags|button|buttons|zip|zipper|dori|tape|tapes|patch|patches|polybeg|polybag|elastic|thread|bone|rivet|stopper|cuff)\b/i.test(lower)
-  ) && !/\b(ss|mohit|db|bb)\s*lots\b/i.test(lower) && !/\b(fabric\s*only|kapda\s*only)\b/i.test(lower);
+  ) && !/\b(ss|mohit|db|bb)\s*lots\b/i.test(lower) && !/\b(fabric\s*only|kapda\s*only)\b/i.test(lower) && !isGarmentProductionQuery;
   if (looksLikeMaterialInquiry && !mentionsLot) {
     try {
       const candidates = await searchAccessoryMaterialsSmart(p);
@@ -2279,7 +2282,7 @@ export async function processUniversalQuery(prompt, context = {}) {
     (/\b(who|which\s*lot|what)\b/i.test(lower) && /\b(issued?|dispatch|allotted?)\b/i.test(lower))
   );
   const isLowStockQuery = !isIssueLogsQuery && /\b(low\s*stock|kam\s*stock|stock\s*kam|kiska\s*stock\s*kam|shortage|kami\s*hai|khatam|reorder|threshold\s*alert|warning|deficit|kam\s*pad\s*gaya|kam\s*pda)\b/i.test(lower);
-  const isMaterialsStockQuery = !isIssueLogsQuery && (
+  const isMaterialsStockQuery = !isIssueLogsQuery && !isGarmentProductionQuery && (
     isLowStockQuery ||
     /\b(materials?\s*stock|accessory\s*stock|accessory\s*inventory|trims?\s*stock|button\s*stock|zip\s*stock|dori\s*stock|materials?\s*list|godown\s*stock|available\s*accessories)\b/i.test(lower) ||
     (/\b(stock|inventory|godown|rack|store|karkhana)\b/i.test(lower) && /\b(dikhao|batao|btana|btao|check|detail|status|report|kya\s*hai|kya\s*h|me\s*kya)\b/i.test(lower))
@@ -2295,10 +2298,23 @@ export async function processUniversalQuery(prompt, context = {}) {
   const isTransfersQuery = /\b(transfer|transfers|godown\s*transfer|material\s*transfer|rack\s*movement|hall\s*transfer)\b/i.test(lower) || (/\b(transfer|transfers)\b/i.test(lower) && /\b(material|materials?|accessory|accessories)\b/i.test(lower));
   const isRgpQuery = /\b(rgp|gate\s*pass|returnable\s*gate\s*pass|vendor\s*outpass)\b/i.test(lower);
   const isScansQuery = /\b(barcode\s*scan|material\s*in|gate\s*entry\s*scan|inward\s*scan)\b/i.test(lower) || (/\b(scan|scans)\b/i.test(lower) && /\b(accessory|material|materials?|gate)\b/i.test(lower));
-  const isGeneralAccessoryForLot = mentionsLot && /\b(accessory|accessories|trims?|weight|tulai|kanta|issue\s*log|material|materials|zip|dori|button)\b/i.test(lower);
+  const isGeneralAccessoryForLot = mentionsLot && /\b(accessory|accessories|trims?|weight|tulai|kanta|gross\s*weight|net\s*weight|issue\s*log|material|materials|zip|dori|button)\b/i.test(lower);
   const isBroadAccessoryQuery = /\b(accessor(?:y|ies)|trims?|materials?\s*storage|accessory\s*storage|accessory\s*sql)\b/i.test(lower) && !/\b(fabric\s*only)\b/i.test(lower);
 
-  if (isWeightCaptureQuery || isIssueLogsQuery || isMaterialsStockQuery || isMaterialSpecificQuery || isAccessoryDbStatusQuery || isTransfersQuery || isRgpQuery || isScansQuery || isGeneralAccessoryForLot || isBroadAccessoryQuery) {
+  const hasExplicitAccessoryTerm = /\b(accessory|accessories|trims?|material|materials|weight|kanta|tulai|scale|issue\s*logs?|issuance|labels?|tags?|buttons?|patches?|doris?|polybegs?|polybags?|elastics?|stoppers?|racks?\s*#?\s*\d+)\b/i.test(lower);
+
+  const shouldRunAccessoryEngine = (
+    isIssueLogsQuery ||
+    isWeightCaptureQuery ||
+    isTransfersQuery ||
+    isRgpQuery ||
+    isScansQuery ||
+    isAccessoryDbStatusQuery ||
+    (isGeneralAccessoryForLot && !isGarmentProductionQuery) ||
+    ((isMaterialsStockQuery || isMaterialSpecificQuery || isBroadAccessoryQuery) && (!isGarmentProductionQuery || hasExplicitAccessoryTerm))
+  );
+
+  if (shouldRunAccessoryEngine) {
     const targetLot = mentionsLot ? mentionsLot[1].trim() : null;
 
     // Subcase 0: Issue Logs inquiries (Querying live 'railway.issue_logs' table)
@@ -2442,7 +2458,9 @@ DIRECTIVES:
     }
 
     // Subcase 1: Specific Lot inquiry for Accessory Software data (Weight Capture, Issue Logs, Trims, Materials, RGPs, Scans)
-    if (targetLot) {
+    // ONLY runs if the user specifically asked for accessory/trims/weight data for this lot!
+    // If the user asked about garment production, cutting, stitching, packing, or job orders, it must NOT run here!
+    if (targetLot && (isGeneralAccessoryForLot || isWeightCaptureQuery) && !isGarmentProductionQuery) {
       const accessoryReport = await getCompleteAccessoryReportForLot(targetLot);
       const { metrics, weightRecords, issueLogs, zips, doris, rgps, scans } = accessoryReport || {};
 
