@@ -891,7 +891,8 @@ export const askAiAssistant = async (req, res) => {
       userId = 'usr-1',
       channelId = 'chan-ai',
       taggedUserId = null,
-      requireEaFollowup = false
+      requireEaFollowup = false,
+      aiMode = 'auto'
     } = req.body;
     let finalImageUrl = imageUrl || image || dataUrl || null;
     const targetChannelId = (channelId === 'chan-ai' || !channelId) && userId ? `chan-ai-${userId}` : channelId;
@@ -964,7 +965,7 @@ export const askAiAssistant = async (req, res) => {
 
       // 2. Run query through our Universal AI Query Engine
       // Handles ALL types of questions: OCR Lot extraction, Specific lots, Parties/Buyers, Categories, Fabrics, Vendors, Overview, Database Tasks & KPIs
-      const engineResult = await processUniversalQuery(userPrompt, { channelId: targetChannelId, userId, recentMessages, conversationHistory, imageUrl: finalImageUrl }).catch(e => {
+      const engineResult = await processUniversalQuery(userPrompt, { channelId: targetChannelId, userId, recentMessages, conversationHistory, imageUrl: finalImageUrl, aiMode }).catch(e => {
         console.warn('Universal Query Engine notice:', e.message);
         return { handled: false };
       });
@@ -1157,7 +1158,8 @@ export const askAiAssistant = async (req, res) => {
       imageAttachment,
       imageGallery,
       trackingData,
-      delegatedTask
+      delegatedTask,
+      aiMode: engineResult?.aiMode || aiMode || 'auto'
     };
 
     // Broadcast AI message in real time to the channel

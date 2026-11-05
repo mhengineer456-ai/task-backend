@@ -1999,6 +1999,7 @@ export function buildTrackingPayload(lotData, stages) {
 export async function processUniversalQuery(prompt, context = {}) {
   const p = (prompt || '').trim();
   const lower = p.toLowerCase();
+  const aiMode = String(context.aiMode || 'auto').toLowerCase();
   const mentionsLot = p.match(/(?:LOT[-_\s]*)?(\d{4,7})\b/i);
   const mentionsParty = /\b(ss|mohit|bb|db|mh|zara|h&m)\b/i.test(lower);
   const isPdfRequested = /\b(pdf|generate\s*pdf|create\s*pdf|download\s*pdf|make\s*pdf|print\s*pdf|export\s*pdf|pdf\s*bana|bana\s*do\s*pdf|krdo\s*generate\s*pdf|pdf.*chahiye|chahiye.*pdf|pdf\s*do|show\s*pdf|slip\s*download|download\s*slip|slip\s*chahiye)\b/i.test(lower);
@@ -2278,10 +2279,12 @@ export async function processUniversalQuery(prompt, context = {}) {
 
   // Dynamic Smart Search Check: If query asks for stock, brand, or photo of an accessory item, test if it matches materials table
   let preMatchedMaterials = null;
-  const looksLikeMaterialInquiry = !isPurePartyProductionQuery && !isGarmentProductionQuery && !/\b(fabric\s*only|kapda\s*only)\b/i.test(lower) && (
-    /\b(stock|inventory|godown|rack|location|p(?:a|d)a\s*h|available|raw\s*materials?)\b/i.test(lower) ||
-    /\b(label|labels|tag|tags|button|buttons|zip|zipper|dori|tape|tapes|patch|patches|polybeg|polybag|elastic|thread|bone|rivet|stopper|cuff)\b/i.test(lower)
-  );
+  const looksLikeMaterialInquiry = aiMode === 'production' ? false : (aiMode === 'accessory' ? true : (
+    !isPurePartyProductionQuery && !isGarmentProductionQuery && !/\b(fabric\s*only|kapda\s*only)\b/i.test(lower) && (
+      /\b(stock|inventory|godown|rack|location|p(?:a|d)a\s*h|available|raw\s*materials?)\b/i.test(lower) ||
+      /\b(label|labels|tag|tags|button|buttons|zip|zipper|dori|tape|tapes|patch|patches|polybeg|polybag|elastic|thread|bone|rivet|stopper|cuff)\b/i.test(lower)
+    )
+  ));
   if (looksLikeMaterialInquiry && !mentionsLot) {
     try {
       const candidates = await searchAccessoryMaterialsSmart(p);
@@ -2323,16 +2326,18 @@ export async function processUniversalQuery(prompt, context = {}) {
   const isGeneralAccessoryForLot = mentionsLot && /\b(accessory|accessories|trims?|weight|tulai|kanta|gross\s*weight|net\s*weight|issue\s*log|material|materials|zip|dori|button)\b/i.test(lower);
   const isBroadAccessoryQuery = /\b(accessor(?:y|ies)|trims?|materials?\s*storage|accessory\s*storage|accessory\s*sql)\b/i.test(lower) && !/\b(fabric\s*only)\b/i.test(lower);
 
-  const shouldRunAccessoryEngine = !isPurePartyProductionQuery && (
-    isIssueLogsQuery ||
-    isWeightCaptureQuery ||
-    isTransfersQuery ||
-    isRgpQuery ||
-    isScansQuery ||
-    isAccessoryDbStatusQuery ||
-    (isGeneralAccessoryForLot && !isGarmentProductionQuery) ||
-    ((isMaterialsStockQuery || isMaterialSpecificQuery || isBroadAccessoryQuery) && (!isGarmentProductionQuery || hasExplicitAccessoryTerm))
-  );
+  const shouldRunAccessoryEngine = aiMode === 'production' ? false : (aiMode === 'accessory' ? true : (
+    !isPurePartyProductionQuery && (
+      isIssueLogsQuery ||
+      isWeightCaptureQuery ||
+      isTransfersQuery ||
+      isRgpQuery ||
+      isScansQuery ||
+      isAccessoryDbStatusQuery ||
+      (isGeneralAccessoryForLot && !isGarmentProductionQuery) ||
+      ((isMaterialsStockQuery || isMaterialSpecificQuery || isBroadAccessoryQuery) && (!isGarmentProductionQuery || hasExplicitAccessoryTerm))
+    )
+  ));
 
   if (shouldRunAccessoryEngine) {
     const targetLot = mentionsLot ? mentionsLot[1].trim() : null;
@@ -2674,7 +2679,7 @@ Directives:
     }
 
     // Subcase 6: Materials Stock / Specific Item / Low Stock Inquiry / Photo Requests
-    if (isMaterialsStockQuery || isMaterialSpecificQuery) {
+    if (isMaterialsStockQuery || isMaterialSpecificQuery || aiMode === 'accessory') {
       const isLowStock = isLowStockQuery || /\b(low\s*stock|kam\s*stock|stock\s*kam|kiska\s*stock\s*kam|kami|shortage|khatam|reorder|threshold|alert|warning|deficit)\b/i.test(lower);
       const userAskedPhoto = /\b(photo|image|pic|picture|tasveer|tasvir|with\s*photo|photo\s*dikhao|photo\s*bhejo|photo\s*btana|photo\s*batao)\b/i.test(lower);
       let materials = [];
