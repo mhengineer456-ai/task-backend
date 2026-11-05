@@ -934,6 +934,7 @@ export const askAiAssistant = async (req, res) => {
     let imageGallery = null;
     let trackingData = null;
     let delegatedTask = null;
+    let engineResult = null;
 
     // Check for Task Delegation to tagged user
     const delegationResult = await processAiTaskDelegation({
@@ -965,7 +966,7 @@ export const askAiAssistant = async (req, res) => {
 
       // 2. Run query through our Universal AI Query Engine
       // Handles ALL types of questions: OCR Lot extraction, Specific lots, Parties/Buyers, Categories, Fabrics, Vendors, Overview, Database Tasks & KPIs
-      const engineResult = await processUniversalQuery(userPrompt, { channelId: targetChannelId, userId, recentMessages, conversationHistory, imageUrl: finalImageUrl, aiMode }).catch(e => {
+      engineResult = await processUniversalQuery(userPrompt, { channelId: targetChannelId, userId, recentMessages, conversationHistory, imageUrl: finalImageUrl, aiMode }).catch(e => {
         console.warn('Universal Query Engine notice:', e.message);
         return { handled: false };
       });
@@ -986,14 +987,14 @@ export const askAiAssistant = async (req, res) => {
         }
         isN8nConnected = true;
       } else {
-        const targetUrl = config.n8nChatWebhookUrl || '';
-        const fallbackUrl = config.n8nTestWebhookUrl || '';
+        const targetUrl = config.n8nChatWebhookUrl || 'https://primary-production-38f0a.up.railway.app/webhook/factory-ai-agents';
+        const fallbackUrl = config.n8nTestWebhookUrl || 'https://primary-production-38f0a.up.railway.app/webhook/factory-ai-agent';
 
         const callN8n = async (url) => {
           if (!url) return null;
           if (/localhost|127\.0\.0\.1/i.test(url) && process.env.NODE_ENV === 'production') return null;
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 3000);
+          const timeoutId = setTimeout(() => controller.abort(), 12000);
 
           try {
             const response = await fetch(url, {

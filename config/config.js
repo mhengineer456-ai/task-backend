@@ -89,8 +89,8 @@ export const config = {
   mysql: getDatabaseConfig(),
   accessoryMysql: getAccessoryDatabaseConfig(),
   dbPath: path.join(__dirname, '../data/db.json'),
-  n8nChatWebhookUrl: process.env.N8N_CHAT_WEBHOOK_URL || 'http://localhost:5678/webhook/factory-ai-agents',
-  n8nTestWebhookUrl: process.env.N8N_TEST_WEBHOOK_URL || 'http://localhost:5678/webhook/factory-ai-agents',
+  n8nChatWebhookUrl: process.env.N8N_CHAT_WEBHOOK_URL || 'https://primary-production-38f0a.up.railway.app/webhook/factory-ai-agents',
+  n8nTestWebhookUrl: process.env.N8N_TEST_WEBHOOK_URL || 'https://primary-production-38f0a.up.railway.app/webhook/factory-ai-agent',
   geminiApiKey: process.env.GEMINI_API_KEY || ''
 };
 
