@@ -119,27 +119,75 @@ export async function getRecentIssueLogs(limit = 20) {
  * Search Issue Logs by material name, category, receiver, lotId, or keyword
  */
 export async function searchIssueLogs(query = '', options = {}) {
-  const { limit = 50, lotId = null, receiver = null } = options;
+  const { limit = 50, lotId: forcedLotId = null, receiver: forcedReceiver = null } = options;
   try {
+    const lower = (query || '').toLowerCase().trim();
+
+    // 1. Direct Lot ID filter
+    let lotId = forcedLotId;
+    if (!lotId && lower) {
+      const lotMatch = lower.match(/\b(?:lot\s*(?:no\.?|#)?\s*)(\d{3,6})\b/i) || lower.match(/\b(\d{5})\b/);
+      if (lotMatch) lotId = lotMatch[1].trim();
+    }
+
+    // 2. Extract Category (e.g. label, tag, dori, patch, button, zip, polybeg, etc.)
+    let categoryTerm = null;
+    if (lower) {
+      const catMatch = lower.match(/\b(labels?|tags?|doris?|patch(?:es)?|buttons?|zips?|zippers?|polybegs?|polybags?|tapes?|inners?|elastics?|cuffs?|washcare|stoppers?|pasting)\b/i);
+      if (catMatch) categoryTerm = catMatch[1].replace(/s$/, '').replace(/es$/, '');
+    }
+
+    // 3. Extract Brand from query
+    const knownBrands = [
+      'amiri', 'nike jacket', 'nike', 'tommy', 'zara', 'addidas brick jacket myshelter',
+      'addidas tag brick', 'addidas brick', 'addidas flower jacket', 'addidas flower',
+      'addidas', 'lacoste jacket', 'lacoste', 'polo jacket', 'polo', 'armani', 'carhartt',
+      'coach jacket', 'coach', 'diesel shirt', 'diesel', 'herms', 'represent',
+      'north face', 'trapster', 'edge', 'scuffers', 'channal', 'burburry',
+      'burbour jacket inner', 'loropiane', 'youngla', 'qc jacket', 'qc', 'fear of god',
+      'essentinal  jacket', 'essentinal', 'stussy', 'bonkers', 'bottega veneta',
+      'acne studio', 'hacket', 'c.k', 'barbour', 'l.v'
+    ];
+    let brandMatch = null;
+    if (lower) {
+      brandMatch = knownBrands.find(b => lower.includes(b));
+    }
+
+    // 4. Extract Receiver from query
+    const knownReceivers = [
+      'karan', 'monu', 'gyaninder', 'pooja', 'pintu', 'sonu', 'sanjay',
+      'chavinath', 'yuvraj', 'ram chander', 'ramchander', 'parmod', 'shriwast', 'kamal', 'mithlash', 'mitlash'
+    ];
+    let receiverMatch = forcedReceiver;
+    if (!receiverMatch && lower) {
+      receiverMatch = knownReceivers.find(r => lower.includes(r));
+    }
+
     let sql = `SELECT * FROM issue_logs WHERE 1=1`;
     const params = [];
 
-    // 1. Direct Lot ID filter
     if (lotId) {
-      const clean = cleanLot(lotId);
       sql += ` AND (LOWER(lotId) = LOWER(?) OR LOWER(lotId) LIKE LOWER(?))`;
-      params.push(clean, `%${clean}%`);
+      params.push(cleanLot(lotId), `%${cleanLot(lotId)}%`);
     }
 
-    // 2. Direct Receiver filter
-    if (receiver) {
+    if (receiverMatch) {
       sql += ` AND (LOWER(receiverName) LIKE LOWER(?) OR LOWER(receiverDept) LIKE LOWER(?))`;
-      params.push(`%${receiver}%`, `%${receiver}%`);
+      params.push(`%${receiverMatch}%`, `%${receiverMatch}%`);
     }
 
-    // 3. Multi-keyword search across materials, lotId, receiverName, personName
-    if (query && query.trim()) {
-      const cleanTerm = query.trim().toLowerCase();
+    if (brandMatch) {
+      sql += ` AND LOWER(materials) LIKE LOWER(?)`;
+      params.push(`%${brandMatch}%`);
+    }
+
+    if (categoryTerm) {
+      sql += ` AND (LOWER(materials) LIKE LOWER(?) OR LOWER(category) LIKE LOWER(?))`;
+      params.push(`%${categoryTerm}%`, `%${categoryTerm}%`);
+    }
+
+    // If neither brand, category, receiver, nor lot were detected, fallback to keyword search
+    if (!lotId && !receiverMatch && !brandMatch && !categoryTerm && query && query.trim()) {
       const stopWords = new Set([
         'sry', 'sorry', 'ab', 'tk', 'tak', 'kis', 'kisko', 'kisne', 'kise', 'or', 'aur', 
         'k', 'ke', 'ki', 'ka', 'ko', 'against', 'issue', 'issued', 'issuance', 'kara', 
@@ -149,10 +197,9 @@ export async function searchIssueLogs(query = '', options = {}) {
         'records', 'logs', 'log', 'history', 'btao', 'lot', 'lots', 'item', 'items', 'sirf',
         'kya', 'kyu', 'kaun', 'kaunse', 'kab', 'kaha', 'kaise', 'kitna', 'kitne', 'kitni',
         'gya', 'gaya', 'gaye', 'gayi', 'hue', 'hui', 'par', 'pe', 'se', 'me', 'mein',
-        'diye', 'diya', 'liya', 'liye', 'kuch', 'bhi', 'abtak'
+        'diye', 'diya', 'liya', 'liye', 'kuch', 'bhi', 'abtak', 'abhi', 'abhitak'
       ]);
-      const words = cleanTerm.split(/[\s,]+/).filter(w => w.length > 1 && !stopWords.has(w));
-
+      const words = lower.split(/[\s,]+/).filter(w => w.length > 1 && !stopWords.has(w));
       if (words.length > 0) {
         words.forEach(w => {
           sql += ` AND (LOWER(materials) LIKE LOWER(?) OR LOWER(lotId) LIKE LOWER(?) OR LOWER(receiverName) LIKE LOWER(?) OR LOWER(receiverDept) LIKE LOWER(?) OR LOWER(personName) LIKE LOWER(?))`;

@@ -2493,38 +2493,22 @@ Directives:
       // 1. Search issue_logs table
       let issueLogs = await searchIssueLogs(p, { lotId: targetLotNo, limit: 50 });
 
-      // 2. If specific search returned zero matches, try searching by preMatched brand/item
-      if ((!issueLogs || issueLogs.length === 0) && preMatchedMaterials && preMatchedMaterials.length > 0) {
-        const brandOrItem = preMatchedMaterials[0]?.brand || preMatchedMaterials[0]?.name;
-        if (brandOrItem) {
-          issueLogs = await searchIssueLogs(brandOrItem, { limit: 50 });
-        }
+      // 2. If specific search returned zero matches and a brand was mentioned, try searching by brand only
+      const brandWord = (lower.match(/\b(amiri|zara|nike|polo|armani|tommy|gap|dior|lacoste|represent|bonkers|stussy|trapster|burburry|diesel|coach|carhartt|loropiane)\b/i) || [])[0];
+      if ((!issueLogs || issueLogs.length === 0) && brandWord) {
+        issueLogs = await searchIssueLogs(brandWord, { limit: 50 });
       }
 
-      // 3. Fallback to recent issue logs if general query without specific filters
+      // 3. Fallback to recent issue logs ONLY if general query without specific brand/receiver/lot filter
       if (!issueLogs || issueLogs.length === 0) {
-        const hasSpecificFilter = /\b(amiri|zara|nike|polo|armani|tommy|gap|dior|label|tag|button|zip|dori|karan|monu|gyaninder|pooja|\d{4,6})\b/i.test(lower);
+        const hasSpecificFilter = Boolean(brandWord || targetLotNo || lower.match(/\b(karan|monu|gyaninder|pooja|pintu|sonu|sanjay)\b/i));
         if (!hasSpecificFilter) {
           issueLogs = await getRecentIssueLogs(25);
         }
       }
 
-      // Check if there are other issuance logs for this brand (e.g. Tags under Amiri)
-      let relatedLogs = [];
-      const brandWord = (p.match(/\b(amiri|zara|nike|polo|armani|tommy|gap|dior|lacoste|represent|bonkers|stussy|trapster|burburry)\b/i) || [])[0];
-      if (brandWord && issueLogs && issueLogs.length > 0) {
-        try {
-          const brandLogs = await searchIssueLogs(brandWord, { limit: 20 });
-          relatedLogs = (brandLogs || []).filter(bl => !issueLogs.some(il => il.id === bl.id));
-        } catch (e) {}
-      }
-
       // Generate verified markdown table
-      let combinedLogs = [...issueLogs];
-      if (relatedLogs.length > 0) {
-        combinedLogs = [...issueLogs, ...relatedLogs];
-      }
-      const md = formatIssueLogsToMarkdown(combinedLogs, p);
+      const md = formatIssueLogsToMarkdown(issueLogs, p);
 
       // Photos from issue logs or associated materials table
       let imageAttachment = null;
@@ -2550,7 +2534,7 @@ Directives:
 
       // B) Query materials table for matching photos of the specific item/brand
       const itemNamesInLogs = new Set();
-      (combinedLogs || []).forEach(l => {
+      (issueLogs || []).forEach(l => {
         if (Array.isArray(l.parsedMaterials)) {
           l.parsedMaterials.forEach(m => {
             if (m.name) itemNamesInLogs.add(m.name.trim().toLowerCase());
