@@ -845,9 +845,9 @@ CRITICAL FORMATTING GUIDELINES (FOR RESPONSIVE WEB & MOBILE):
 
       const enhancedInstruction = systemInstruction ? `${systemInstruction}\n\n${cleanFormattingDirectives}` : cleanFormattingDirectives;
 
-      const callGeminiOnce = async (modelName = 'gemini-2.5-flash') => {
+      const callGeminiOnce = async (modelName = 'gemini-3.1-flash-lite') => {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        const timeoutId = setTimeout(() => controller.abort(), 4500);
         try {
           const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
           const res = await fetch(url, {
@@ -857,7 +857,7 @@ CRITICAL FORMATTING GUIDELINES (FOR RESPONSIVE WEB & MOBILE):
               systemInstruction: { parts: [{ text: enhancedInstruction }] },
               contents,
               generationConfig: {
-                temperature: 0.25,
+                temperature: 0.6,
                 maxOutputTokens: 2048
               }
             }),
@@ -880,8 +880,8 @@ CRITICAL FORMATTING GUIDELINES (FOR RESPONSIVE WEB & MOBILE):
         return /(?:active nahi hai|data available nahi hai|record nahi mila|not found in(?: the)? active|not available in live production|kya aap confirm kar sakte hain|purana\/closed lot hai)/i.test(text);
       };
 
-      // Test fast verified flash endpoint
-      const modelCandidates = ['gemini-2.5-flash', 'gemini-flash-latest'];
+      // Test active, verified working flash endpoint
+      const modelCandidates = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite'];
       let answer = null;
       for (const model of modelCandidates) {
         answer = await callGeminiOnce(model);
@@ -3264,15 +3264,45 @@ CRITICAL RULES:
   }
 
   // =========================================================================
-  // 4. GREETINGS & INTRODUCTIONS (e.g. "hlo ji", "hello", "namaste", "kaise ho")
+  // 4. GREETINGS & INTRODUCTIONS (e.g. "hlo ji", "hello", "namaste", "kaise ho", "hello kya haal h")
   // =========================================================================
-  if (/^(hlo|hello|helo|hlw|hi|hey|namaste|namaskar|ram\s*ram|radhe\s*radhe|sat\s*sri\s*akal|sasriakal|adaab|salam|good\s*(morning|afternoon|evening)|kaise\s*ho|sup)(\s*(ji|sir|bhai|mam|madam))?\b/i.test(lower) && !/\b(lot|party|task|pdf|status|cut|fabric|sheet)\b/i.test(lower)) {
-    const fallback = `**Hello! Main PulseBot AI hoon, aapka Factory Suite Pro Intelligent Assistant.** 🚀\n\nMain aapki factory production, cutting operations, job orders, aur operations workflows ke kisi bhi sawal ka foran aur exact answer de sakta hoon:\n\n* **Cutting Status:** Kisi bhi Lot ka status poochein (jaise *"Is Lot 61008 cut or pending?"*)\n* **Party & Orders:** Kisi bhi Buyer ka data dekhein (jaise *"How many lots of SS?"* ya *"Mohit Hosiery total lots"*)\n* **Fabrics & Styles:** Material aur garment categories (jaise *"Lots using German Fleece"* ya *"How many Lower lots?"*)\n* **Task Manager:** Live tasks aur team updates (jaise *"What tasks are overdue?"* ya *"Who is on leave?"*)\n* **Instant PDF:** Kisi bhi lot ka Cutting Slip ya party ka complete report download karein.\n\nAap abhi kya check karna chahte hain?`;
+  if (/^(hlo|hello|helo|hlw|hi|hey|namaste|namaskar|ram\s*ram|radhe\s*radhe|sat\s*sri\s*akal|sasriakal|adaab|salam|good\s*(morning|afternoon|evening)|kaise\s*ho|kese\s*ho|kya\s*haal|sup|yo)(\s*(ji|sir|bhai|bro|yaar|mam|madam))?\b/i.test(lower) && !/\b(lot|party|task|pdf|status|cut|fabric|sheet)\b/i.test(lower)) {
+    const isAskingWellbeing = /\b(haal|hal|kaise|kaisa|kese|how\s*are|sup|whats\s*up|what'?s\s*up|sab\s*theek|sab\s*badhiya)\b/i.test(lower);
     
-    const sysPrompt = `You are PulseBot AI, the expert garment manufacturing assistant for Factory Suite Pro.
-Converse warmly, politely, and naturally in Hinglish/Hindi/English matching the user.
-Greet the user and briefly highlight that you can answer queries about live lots, cutting status verified from production records, party orders (like SS, Mohit Hosiery), fabrics, and tasks.
-User did NOT ask for PDF. Do NOT mention downloading PDF.`;
+    let fallback = '';
+    if (isAskingWellbeing) {
+      fallback = `**Hello! Main ekdum badhiya hoon, aap bataiye aap kaise hain!** 😊\n\nFactory Suite Pro systems smoothly run kar rahe hain. Aaj factory floor ya trims inventory mein kya check karna hai — kisi lot ka status, party orders, ya trims stock?`;
+    } else {
+      fallback = `**Hello! Main PulseBot AI hoon, aapka Factory Suite Pro Intelligent Assistant.** 🚀\n\nAap kisi bhi Lot ka cutting status, Party orders, WIP tracking ya Trims inventory pooch sakte hain. Aaj kya check karna hai?`;
+    }
+    
+    const sysPrompt = `You are PulseBot AI, the friendly, intelligent copilot for Factory Suite Pro.
+Converse warmly, politely, and naturally in fluent Hinglish (Hindi + English) or Hindi matching the user.
+${isAskingWellbeing 
+  ? 'The user is casually asking how you are doing ("kya haal h", "kaise ho"). Respond warmly like a friendly colleague/assistant, say you are doing great and the factory systems are running smoothly, and casually ask how you can help them today with lots, cutting operations, party orders, or trims inventory.'
+  : 'Greet the user warmly and naturally, and ask how you can assist with lots, cutting operations, party orders, or trims inventory today.'}
+Keep the tone natural, conversational, polite, and brief (2-3 lines). Do NOT dump long bulleted lists of features unless asked.`;
+
+    const aiAnswer = await generateAiResponseWithGemini({
+      prompt: p,
+      systemInstruction: sysPrompt,
+      fallbackText: fallback,
+      conversationHistory
+    });
+
+    return { handled: true, answer: aiAnswer };
+  }
+
+  // =========================================================================
+  // 4.5. CASUAL ACKNOWLEDGEMENTS & GRATITUDE (e.g. "thanks", "shukriya", "ok", "theek h", "great")
+  // =========================================================================
+  if (/^(thank\s*you|thanks|thx|shukriya|dhanyawad|dhanyavad|bahut\s*badhiya|badhiya|shabash|great|awesome|perfect|nice|superb|ok|okay|theek\s*h(ai)?|thik\s*h(ai)?|achha|acha|got\s*it|samajh\s*gaya|done)(\s*(ji|sir|bhai|bro|yaar))?[.!]?$/i.test(lower)) {
+    const isThanks = /\b(thank|thx|shukriya|dhanyawad|dhanyavad)\b/i.test(lower);
+    const fallback = isThanks 
+      ? `Aapka bahut-bahut swagat hai! 😊 Agar kisi aur Lot, Party ya Trims ke baare mein koi sawaal ho, toh bas batayein!`
+      : `Ji bilkul! Agar aur koi lot status, party report ya trim requirement check karni ho toh batayein.`;
+
+    const sysPrompt = `You are PulseBot AI. The user just acknowledged or thanked you. Respond warmly, politely, and casually in 1-2 lines in Hinglish. Let them know you are always here whenever they need any factory production, cutting, or trims updates.`;
 
     const aiAnswer = await generateAiResponseWithGemini({
       prompt: p,
