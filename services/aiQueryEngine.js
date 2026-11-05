@@ -2213,7 +2213,13 @@ export async function processUniversalQuery(prompt, context = {}) {
     for (const m of recent) {
       const text = String(m.text || '');
       const lotM = text.match(/(?:LOT[-_\s]*)?(\d{4,7})\b/i);
-      if (lotM) return { type: 'lot', value: lotM[1] };
+      if (lotM) {
+        const num = lotM[1];
+        // Exclude database ports and known non-lot numbers (like 3306, 43485, 5000, 5173)
+        if (num !== '3306' && num !== '43485' && num !== '5000' && num !== '5173' && !/port|localhost|proxy|railway|mysql|db/i.test(text.slice(Math.max(0, lotM.index - 15), lotM.index + 15))) {
+          return { type: 'lot', value: num };
+        }
+      }
       if (/\b(ss|ss\s*party)\b/i.test(text)) return { type: 'party', value: 'SS Party' };
       if (/\bmohit\s*(?:hosiery)?\b/i.test(text)) return { type: 'party', value: 'Mohit Hosiery' };
       if (/\bbb\b/i.test(text)) return { type: 'party', value: 'BB' };
@@ -2246,8 +2252,10 @@ export async function processUniversalQuery(prompt, context = {}) {
   // =========================================================================
   // Dynamic Smart Search Check: If query asks for stock, brand, or photo of an item, test if it matches materials table
   let preMatchedMaterials = null;
-  const looksLikeMaterialInquiry = /\b(stock|inventory|godown|rack|location|p(?:a|d)a\s*h|available|kitna|kitne|photo|image|pic|dikhao|btana|batao|brand)\b/i.test(lower) &&
-    !/\b(ss|mohit|db|bb)\s*lots\b/i.test(lower);
+  const looksLikeMaterialInquiry = (
+    /\b(stock|inventory|godown|rack|location|p(?:a|d)a\s*h|available|kitna|kitne|photo|image|pic|dikhao|bhejo|btana|batao|brand)\b/i.test(lower) ||
+    /\b(label|labels|tag|tags|button|buttons|zip|zipper|dori|tape|tapes|patch|patches|polybeg|polybag|elastic|thread|bone|rivet|stopper|cuff)\b/i.test(lower)
+  ) && !/\b(ss|mohit|db|bb)\s*lots\b/i.test(lower) && !/\b(fabric\s*only|kapda\s*only)\b/i.test(lower);
   if (looksLikeMaterialInquiry && !mentionsLot) {
     try {
       const candidates = await searchAccessoryMaterialsSmart(p);
@@ -2515,21 +2523,6 @@ List the recent materials issued, person name, category, and date in clean markd
         }
       }
 
-      // Check if there are also production garment lots in sheets for this brand to provide complete clarity
-      let relatedLots = [];
-      const brandToken = (materials[0]?.brand || materials[0]?.name || '').toLowerCase();
-      if (brandToken && brandToken.length >= 3 && sheets?.lotsMap) {
-        for (const [lotNo, lotInfo] of sheets.lotsMap.entries()) {
-          const itemParty = (lotInfo.party || '').toLowerCase();
-          const itemBrand = (lotInfo.brand || '').toLowerCase();
-          const itemGarment = (lotInfo.garment || '').toLowerCase();
-          if (itemParty.includes(brandToken) || itemBrand.includes(brandToken) || itemGarment.includes(brandToken)) {
-            relatedLots.push(lotInfo);
-            if (relatedLots.length >= 7) break;
-          }
-        }
-      }
-
       // Check if any matching item has Cloudinary image URL
       const itemsWithImg = materials.filter(m => m.imageUrl && String(m.imageUrl).trim().startsWith('http'));
       if (itemsWithImg.length > 0) {
@@ -2541,9 +2534,10 @@ List the recent materials issued, person name, category, and date in clean markd
         };
 
         if (itemsWithImg.length > 1) {
-          imageGallery = itemsWithImg.slice(0, 4).map(m => ({
+          imageGallery = itemsWithImg.slice(0, 6).map(m => ({
             url: m.imageUrl,
             title: `${m.name} (${m.category || 'Accessory'})`,
+            garment: m.category || 'Accessory',
             caption: `Stock: ${Number(m.stock || 0).toLocaleString()} ${m.unit || 'Pcs'} | Location: ${m.location || 'Godown'}`
           }));
         }
@@ -2558,25 +2552,18 @@ List the recent materials issued, person name, category, and date in clean markd
         md = formatMaterialsToMarkdown(materials, title);
       }
 
-      if (relatedLots.length > 0 && isSpecificSearch) {
-        md += `\n---\n#### 📋 Related Garment Manufacturing Orders in Factory Pipeline:\n`;
-        relatedLots.forEach(l => {
-          md += `* **Lot #${l.lot}:** ${l.garment || 'Garment'} • **${l.qty || 0} Pcs** (${l.stage || 'In Production'})\n`;
-        });
-      }
-
-      const sysPrompt = `You are PulseBot AI, the intelligent garment manufacturing and accessory operations copilot for Factory Suite Pro.
-The user is inquiring about accessory materials, stock levels, or brand inventory.
-Answer clearly in natural Hindi / Hinglish / English matching the user.
+      const sysPrompt = `You are PulseBot AI, the dedicated accessory and trims inventory copilot for Factory Suite Pro.
+The user is asking ONLY about raw accessory materials, trims stock, or godown rack location.
+Answer clearly and warmly in natural Hindi / Hinglish / English matching the user.
 
 VERIFIED ACCESSORY SQL DATA (DATABASE: railway.materials):
 ${materials.map(m => `• Item: ${m.name} | Category: ${m.category} | Stock: ${m.stock} ${m.unit} (${m.packets || 1} Pkts) | Location: ${m.location} | Photo URL: ${m.imageUrl || 'None'}`).join('\n')}
 
-STRICT ACCURACY & ANTI-HALLUCINATION RULES:
-1. State the exact stock, category, number of packets, and physical godown rack location (e.g. ${materials[0]?.location || 'Main Store'}).
-2. If Photo URL is provided, use ONLY the exact Cloudinary URL: ![${materials[0]?.name}](${materials[0]?.imageUrl}). NEVER invent, alter, or use demo/sample URLs (e.g. res.cloudinary.com/demo/...).
-${relatedLots.length > 0 ? `3. As an additional helpful note, clarify that these are raw accessory trims (tags, patches, labels, etc.) in stock, and also mention that there are ${relatedLots.length} garment production lots registered in factory Job Orders (${relatedLots.map(l => `Lot ${l.lot}: ${l.garment}`).join(', ')}). This eliminates all confusion between raw accessory trims vs garment cut orders.` : ''}
-4. Be direct, helpful, and courteous.
+STRICT DIRECTIVES:
+1. DO NOT mention, list, or include ANY garment cutting lots, job orders, master orders, or garment manufacturing orders under ANY circumstance. The user asked ONLY for accessory inventory.
+2. Focus strictly on the accessory materials: Item name, category (Labels, Tags, Patch, etc.), exact stock quantity, packets, and godown rack location (e.g. ${materials[0]?.location || 'Main Store'}).
+3. If photo is requested or available, include the exact Cloudinary markdown image: ![Name](url). NEVER write blank photo tags like "**Photo:** **" or placeholder URLs.
+4. Keep the response crisp, accurate, helpful, and professional.
 5. User did NOT ask for PDF. Do not mention PDF.`;
 
       let aiAnswer = await generateAiResponseWithGemini({
@@ -2586,13 +2573,25 @@ ${relatedLots.length > 0 ? `3. As an additional helpful note, clarify that these
         conversationHistory
       });
 
-      // Ensure real Cloudinary URLs are present if Gemini used a placeholder
+      // 1. Strip any unintentional garment production lot mentions or footnotes
+      if (aiAnswer) {
+        aiAnswer = aiAnswer.replace(/\n+\*?\*?(?:Important Note|Important Production Context|Production Context|Related Garment Manufacturing|Garment Production).*?(?:job orders|production lots|cut orders).*$/si, '');
+        // 2. Clean up any empty photo bullets Gemini might have rendered like "**Photo:** **" or "**Photo:**"
+        aiAnswer = aiAnswer.replace(/\*\*Photo:\*\*\s*(?:\*\*)?/gi, '');
+      }
+
+      // 3. Ensure real Cloudinary URLs are present if Gemini used a placeholder
       if (itemsWithImg.length > 0 && aiAnswer) {
         if (/res\.cloudinary\.com\/demo\//i.test(aiAnswer)) {
           // Replace demo placeholder with real Cloudinary URL
           itemsWithImg.forEach(item => {
             aiAnswer = aiAnswer.replace(/https:\/\/res\.cloudinary\.com\/demo\/[^\s\)]+/g, item.imageUrl);
           });
+        }
+        // 4. If user asked for photo or items have images, but Gemini omitted markdown images, inject verified images
+        if (userAskedPhoto && !aiAnswer.includes('![') && !aiAnswer.includes('res.cloudinary.com')) {
+          const photoBlock = itemsWithImg.map(m => `![${m.name} (${m.category || 'Accessory'})](${m.imageUrl})`).join('\n\n');
+          aiAnswer += `\n\n${photoBlock}\n`;
         }
       }
 
