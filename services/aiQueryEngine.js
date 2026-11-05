@@ -2550,7 +2550,8 @@ List the recent materials issued, person name, category, and date in clean markd
       if (isLowStock) {
         md = formatLowStockToMarkdown(materials);
       } else if (isSpecificSearch) {
-        md = formatMaterialDetailCardToMarkdown(materials, p, userAskedPhoto);
+        const cleanTitle = materials[0]?.category || materials[0]?.brand || materials[0]?.name || p;
+        md = formatMaterialDetailCardToMarkdown(materials, cleanTitle, userAskedPhoto);
       } else {
         md = formatMaterialsToMarkdown(materials, title);
       }

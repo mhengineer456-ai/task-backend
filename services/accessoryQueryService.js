@@ -624,7 +624,11 @@ export function formatMaterialDetailCardToMarkdown(items, searchTerm = '', userA
     return `*Accessory SQL Database mein "${searchTerm || 'Item'}" ke naam ya category se koi material nahi mila.*`;
   }
 
-  const titleName = searchTerm || items[0]?.category || items[0]?.brand || items[0]?.name || 'Material';
+  // Format clean title (e.g. "Tags", "Labels", "Amiri", etc.)
+  let titleName = items[0]?.category || items[0]?.brand || items[0]?.name || 'Material';
+  if (searchTerm && searchTerm.length <= 25 && !/(?:detail|stock|btana|batao|kitna|total|kya|hai|dikhao|pda|mre|pass|with|photo)/i.test(searchTerm)) {
+    titleName = searchTerm;
+  }
   const totalStockSum = items.reduce((acc, m) => acc + (Number(m.stock) || 0), 0);
   const totalPacketsSum = items.reduce((acc, m) => acc + (Number(m.packets) || 0), 0);
   const itemsWithImages = items.filter(m => m.imageUrl && m.imageUrl.trim());
