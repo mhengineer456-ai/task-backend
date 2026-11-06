@@ -2709,10 +2709,12 @@ Directives:
       let isSpecificSearch = false;
       let imageAttachment = null;
       let imageGallery = null;
+      let cleanTitle = '';
 
       if (isLowStock) {
         materials = await getLowStockMaterials();
         title = 'Low Stock & Threshold Alert Materials';
+        cleanTitle = 'Low Stock Alerts';
       } else if (preMatchedMaterials && preMatchedMaterials.length > 0) {
         materials = preMatchedMaterials;
         isSpecificSearch = true;
@@ -2766,6 +2768,11 @@ Directives:
         const isTagCat = /\b(tags?)\b/i.test(lower);
         const isButtonCat = /\b(buttons?)\b/i.test(lower);
         const isPatchCat = /\b(patch(?:es)?)\b/i.test(lower);
+        const isDoriCat = /\b(dori|doori)\b/i.test(lower);
+        const isStopperCat = /\b(stoppers?)\b/i.test(lower);
+        const isTapeCat = /\b(tapes?)\b/i.test(lower);
+        const isBoneCat = /\b(bones?)\b/i.test(lower);
+        const isElasticCat = /\b(elastics?)\b/i.test(lower);
         const isPolybagCat = /\b(poly\s*begs?|poly\s*bags?|polybegs?|polybags?|polbegs?|polbags?|lifaf(?:a|e|aa)?|packing\s*(?:beg|bag)s?|begs?)\b/i.test(lower);
         const polySizeMatch = isPolybagCat ? lower.match(/\b(\d{1,2}(?:\.\d+)?)\s*(?:\/|\s*x\s*|-|\s+)\s*(\d{1,2}(?:\.\d+)?)\b/) : null;
         const polyTitle = polySizeMatch ? `POLYBEG ${polySizeMatch[1]}/${polySizeMatch[2]}` : 'POLYBEG';
@@ -2783,11 +2790,12 @@ Directives:
         else if (/stussy/i.test(lower) || materials.every(m => /stussy/i.test(m.name || m.brand))) detectedBrand = 'STUSSY';
         else if (/diesel/i.test(lower) || materials.every(m => /diesel/i.test(m.name || m.brand))) detectedBrand = 'DIESEL';
 
-        let catPrefix = isLabelCat ? 'LABELS' : (isTagCat ? 'TAGS' : (isButtonCat ? 'BUTTONS' : (isPatchCat ? 'PATCHES' : (isPolybagCat ? polyTitle : ''))));
-        let cleanTitle = detectedBrand ? (catPrefix ? `${detectedBrand} ${catPrefix}` : detectedBrand) : (catPrefix || materials[0]?.category || materials[0]?.brand || materials[0]?.name || p);
+        let catPrefix = isLabelCat ? 'LABELS' : (isTagCat ? 'TAGS' : (isButtonCat ? 'BUTTONS' : (isPatchCat ? 'PATCHES' : (isPolybagCat ? polyTitle : (isStopperCat && isDoriCat ? 'STOPPER & DORI' : (isStopperCat ? 'STOPPER' : (isDoriCat ? 'DORI' : (isTapeCat ? 'TAPE' : (isBoneCat ? 'BONE' : (isElasticCat ? 'ELASTIC' : ''))))))))));
+        cleanTitle = detectedBrand ? (catPrefix ? `${detectedBrand} ${catPrefix}` : detectedBrand) : (catPrefix || materials[0]?.category || materials[0]?.brand || materials[0]?.name || p);
 
         md = formatMaterialDetailCardToMarkdown(materials, cleanTitle, userAskedPhoto);
       } else {
+        cleanTitle = title || materials[0]?.category || 'Inventory';
         md = formatMaterialsToMarkdown(materials, title);
       }
 
@@ -2805,6 +2813,8 @@ Directives:
 
       const isLabelQuery = /\b(labels?)\b/i.test(lower);
       const isTagQuery = /\b(tags?)\b/i.test(lower);
+      const isDoriQuery = /\b(dori|doori)\b/i.test(lower);
+      const isStopperQuery = /\b(stoppers?)\b/i.test(lower);
       const isPolybagQuery = /\b(poly\s*begs?|poly\s*bags?|polybegs?|polybags?|polbegs?|polbags?|lifaf(?:a|e|aa)?|packing\s*(?:beg|bag)s?|begs?)\b/i.test(lower);
       const polySizeMatchPrompt = isPolybagQuery ? lower.match(/\b(\d{1,2}(?:\.\d+)?)\s*(?:\/|\s*x\s*|-|\s+)\s*(\d{1,2}(?:\.\d+)?)\b/) : null;
       const polyTitlePrompt = polySizeMatchPrompt ? `POLYBEG ${polySizeMatchPrompt[1]}/${polySizeMatchPrompt[2]}` : 'POLYBEG';
@@ -2818,7 +2828,7 @@ Directives:
 
       const promptTargetName = detectedBrandForPrompt
         ? (isLabelQuery ? `${detectedBrandForPrompt} LABELS` : isTagQuery ? `${detectedBrandForPrompt} TAGS` : isPolybagQuery ? `${detectedBrandForPrompt} ${polyTitlePrompt}` : `${detectedBrandForPrompt} items`)
-        : (isPolybagQuery ? polyTitlePrompt : isLabelQuery ? 'LABELS' : isTagQuery ? 'TAGS' : 'the requested trims/materials');
+        : (isPolybagQuery ? polyTitlePrompt : (isStopperQuery && isDoriQuery ? 'STOPPER & DORI' : (isStopperQuery ? 'STOPPERS' : (isDoriQuery ? 'DORI' : (isLabelQuery ? 'LABELS' : (isTagQuery ? 'TAGS' : (cleanTitle || 'the requested trims/materials')))))));
 
       const sysPrompt = `You are PulseBot AI, the dedicated accessory & trims inventory copilot for Factory Suite Pro.
 The user asked: "${p}".

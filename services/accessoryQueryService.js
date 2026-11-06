@@ -576,25 +576,32 @@ export async function searchAccessoryMaterialsSmart(queryStr, options = {}) {
       if (isTag) {
         catClauses.push('LOWER(category) IN (?, ?)');
         catParams.push('tags', 'tag');
-      } else if (isLabel) {
+      }
+      if (isLabel) {
         catClauses.push('LOWER(category) LIKE ?');
         catParams.push('%label%');
-      } else if (isPatch) {
+      }
+      if (isPatch) {
         catClauses.push('(LOWER(category) LIKE ? OR LOWER(category) LIKE ?)');
         catParams.push('%patch%', '%matel patch%');
-      } else if (isButton) {
+      }
+      if (isButton) {
         catClauses.push('LOWER(category) LIKE ?');
         catParams.push('%button%');
-      } else if (isTape) {
+      }
+      if (isTape) {
         catClauses.push('LOWER(category) LIKE ?');
         catParams.push('%tape%');
-      } else if (isDori) {
-        catClauses.push('(LOWER(category) LIKE ? OR LOWER(category) LIKE ?)');
-        catParams.push('%dori%', '%doori%');
-      } else if (isBone) {
+      }
+      if (isDori) {
+        catClauses.push('(LOWER(category) LIKE ? OR LOWER(category) LIKE ? OR LOWER(name) LIKE ?)');
+        catParams.push('%dori%', '%doori%', '%dori%');
+      }
+      if (isBone) {
         catClauses.push('LOWER(category) LIKE ?');
         catParams.push('%bone%');
-      } else if (isPolybag) {
+      }
+      if (isPolybag) {
         let pSql = `(
           (LOWER(category) LIKE ? OR LOWER(category) LIKE ? OR LOWER(category) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ?)
           AND LOWER(name) NOT LIKE '%polyster%'
@@ -605,34 +612,44 @@ export async function searchAccessoryMaterialsSmart(queryStr, options = {}) {
           catParams.push(...polySizeParams);
         }
         catClauses.push(pSql);
-      } else if (isElastic) {
+      }
+      if (isElastic) {
         catClauses.push('LOWER(category) LIKE ?');
         catParams.push('%elastic%');
-      } else if (isStopper) {
-        catClauses.push('LOWER(category) LIKE ?');
-        catParams.push('%stopper%');
-      } else if (isSpray) {
+      }
+      if (isStopper) {
+        catClauses.push('(LOWER(category) LIKE ? OR LOWER(name) LIKE ?)');
+        catParams.push('%stopper%', '%stopper%');
+      }
+      if (isSpray) {
         catClauses.push('LOWER(category) LIKE ?');
         catParams.push('%spray%');
-      } else if (isRivet) {
+      }
+      if (isRivet) {
         catClauses.push('(LOWER(category) LIKE ? OR LOWER(category) LIKE ?)');
         catParams.push('%ribit%', '%ribbit%');
-      } else if (isPasting) {
+      }
+      if (isPasting) {
         catClauses.push('LOWER(category) LIKE ?');
         catParams.push('%pasting%');
-      } else if (isInner) {
+      }
+      if (isInner) {
         catClauses.push('LOWER(category) LIKE ?');
         catParams.push('%inner%');
-      } else if (isCuff) {
+      }
+      if (isCuff) {
         catClauses.push('LOWER(category) LIKE ?');
         catParams.push('%cuff%');
-      } else if (isEyelet) {
+      }
+      if (isEyelet) {
         catClauses.push('LOWER(category) LIKE ?');
         catParams.push('%let%');
-      } else if (isFashionPatti) {
+      }
+      if (isFashionPatti) {
         catClauses.push('(LOWER(category) LIKE ? OR LOWER(category) LIKE ?)');
         catParams.push('%patti%', '%fashion patti%');
-      } else if (isWashal) {
+      }
+      if (isWashal) {
         catClauses.push('LOWER(category) LIKE ?');
         catParams.push('%washal%');
       }
