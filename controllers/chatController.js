@@ -634,9 +634,6 @@ async function processAiTaskDelegation({
   if (!isConnected()) return null;
 
   try {
-    const rawMsg = (message || '').trim();
-    if (!rawMsg) return null;
-
     const allUsers = await query('SELECT id, name, email, role, department, avatar FROM users').catch(() => []);
     if (!allUsers || allUsers.length === 0) return null;
 
@@ -645,18 +642,53 @@ async function processAiTaskDelegation({
       targetUser = allUsers.find(u => String(u.id) === String(taggedUserId));
     }
 
+    const rawMsg = (message || '').trim() || (targetUser ? `Operational task delegated to ${targetUser.name}` : '');
+    if (!rawMsg && !targetUser) return null;
+
     // Check for @mention in text if taggedUserId was not explicitly set
     let cleanedMentionName = null;
-    if (!targetUser) {
-      const atMatch = rawMsg.match(/@([a-zA-Z0-9_\s]+?)(?:\s+|$|:|,)/);
-      if (atMatch) {
-        const candidate = atMatch[1].trim().toLowerCase();
-        targetUser = allUsers.find(u => {
-          const uName = (u.name || '').trim().toLowerCase();
-          return uName === candidate || uName.startsWith(candidate) || candidate.startsWith(uName);
-        });
-        if (targetUser) {
-          cleanedMentionName = atMatch[0];
+    if (!targetUser && rawMsg) {
+      // 1. Exact full name match across all users in DB (e.g. @Paras Goyal)
+      for (const u of allUsers) {
+        if (!u.name) continue;
+        const escaped = u.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const userRegex = new RegExp(`@${escaped}\\b`, 'i');
+        if (userRegex.test(rawMsg)) {
+          targetUser = u;
+          cleanedMentionName = `@${u.name}`;
+          break;
+        }
+      }
+      // 2. Direct first name match across all users (e.g. @Paras, @Mohit, @Ayush)
+      if (!targetUser) {
+        for (const u of allUsers) {
+          if (!u.name) continue;
+          const firstName = u.name.split(' ')[0].trim();
+          if (firstName.length >= 2) {
+            const escaped = firstName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const firstRegex = new RegExp(`@${escaped}\\b`, 'i');
+            if (firstRegex.test(rawMsg)) {
+              targetUser = u;
+              cleanedMentionName = `@${firstName}`;
+              break;
+            }
+          }
+        }
+      }
+      // 3. Fallback: match generic @word regex against user name, email, or prefix
+      if (!targetUser) {
+        const atMatch = rawMsg.match(/@([a-zA-Z0-9_.-]+)/);
+        if (atMatch) {
+          const cand = atMatch[1].trim().toLowerCase();
+          targetUser = allUsers.find(u => {
+            const uName = (u.name || '').trim().toLowerCase();
+            const uFirst = uName.split(' ')[0].trim();
+            const uEmailPrefix = (u.email || '').split('@')[0].toLowerCase();
+            return uName === cand || uFirst === cand || uEmailPrefix === cand || uName.startsWith(cand);
+          });
+          if (targetUser) {
+            cleanedMentionName = atMatch[0];
+          }
         }
       }
     }
@@ -684,12 +716,12 @@ async function processAiTaskDelegation({
     }
     cleanTitle = cleanTitle
       .replace(/@\S+/g, '')
-      .replace(/^(create\s*task|task|assign\s*task|assign\s*to\s*[^:]+:|please|kripya|assign)\s*/i, '')
+      .replace(/^(create\s*task|task|assign\s*task|assign\s*to\s*[^:]+:|please|kripya|assign|plz|urgent)\s*/i, '')
       .replace(/\s*(with|and)\s*ea\s*follow\s*up.*$/i, '')
       .trim();
 
     if (!cleanTitle || cleanTitle.length < 3) {
-      cleanTitle = `Task assigned to ${targetUser.name}: ${rawMsg.slice(0, 40)}`;
+      cleanTitle = `Task delegated to ${targetUser.name}: Operational assignment`;
     }
 
     cleanTitle = cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1);
