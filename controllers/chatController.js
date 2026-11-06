@@ -1064,7 +1064,20 @@ export const askAiAssistant = async (req, res) => {
         }
 
         if (!aiReplyText) {
-          aiReplyText = `🤖 *PulseBot*: Received "${message}". Factory Suite Pro AI Engine is active and ready to assist you.`;
+          const lotMatch = message.match(/(?:LOT[-_\s]*)?(\d{4,7})\b/i);
+          if (lotMatch) {
+            const fallbackLotRes = await processUniversalQuery(message).catch(() => null);
+            if (fallbackLotRes && fallbackLotRes.handled && fallbackLotRes.answer) {
+              aiReplyText = fallbackLotRes.answer;
+              if (fallbackLotRes.trackingData) trackingData = fallbackLotRes.trackingData;
+              if (fallbackLotRes.imageAttachment) imageAttachment = fallbackLotRes.imageAttachment;
+              if (fallbackLotRes.pdfAttachment) pdfAttachment = fallbackLotRes.pdfAttachment;
+            }
+          }
+        }
+
+        if (!aiReplyText) {
+          aiReplyText = `Hello! Main hoon PulseBot AI. Factory Suite Pro production aur inventory database active hai. Kripya apna sawal poochein ya kisi specific Lot Number ya party ke baare mein batayein.`;
         }
 
         // Attach PDF ONLY when user gave explicit command to create, generate, or download PDF

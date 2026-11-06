@@ -808,13 +808,11 @@ export function sanitizeAiMarkdown(rawText) {
   if (!rawText || typeof rawText !== 'string') return rawText;
   return rawText
     // 1. Fix "**Key: ** Val" -> "**Key:** Val"
-    .replace(/\*\*([^*:\n]+):\s*\*\*/g, '**$1:**')
+    .replace(/\*\*([^*:\n]+?):\s*\*\*/g, '**$1:**')
     // 2. Fix "**Key : ** Val" -> "**Key:** Val"
-    .replace(/\*\*([^*:\n]+)\s*:\s*\*\*/g, '**$1:**')
-    // 3. Fix "**Key **" -> "**Key**" (do not cross newlines)
-    .replace(/\*\*([^*:\n]+)\s+\*\*/g, '**$1**')
-    // 4. Fix bullets with broken asterisks e.g. "• **Total Master Orders: " -> "• **Total Master Orders:** "
-    .replace(/^\s*([*•-])\s*\*\*([^*:\n]+):\s*(?!\*\*)/gm, '$1 **$2:** ');
+    .replace(/\*\*([^*:\n]+?)\s*:\s*\*\*/g, '**$1:**')
+    // 3. Fix unclosed bullet keys e.g. "• **Key: " -> "• **Key:** "
+    .replace(/^\s*([*•-])\s*\*\*([^*:\n]+?):\s*(?!\*\*)/gm, '$1 **$2:** ');
 }
 
 /**
@@ -3785,6 +3783,7 @@ RESPONSE REQUIREMENTS:
       const isStitchingQuery = /\b(stitching|silai|stitch)\b/i.test(lower);
       const stitchSupText = lotData.stitchingSupervisor || issue.stitchingSupervisor || (lotData.directStitching ? 'Direct Stitching Team' : 'Pending Allocation');
       const packSupText = lotData.packingSupervisor || issue.packingSupervisor || (lotData.barcodes && lotData.barcodes[0]?.packingSupervisor) || 'Pintu (Packing)';
+      const stitchDate = lotData.stitchingIssueDate || issue.stitchingIssueDate || issue.pintuIssueDate || lotData.cutDate || '';
 
       const compInfo = parseStitchingCompletion(lotData.completedStatus);
       const wipInfo = getLatestWipStatus(lotData.wipStatus);
