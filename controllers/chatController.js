@@ -627,19 +627,40 @@ export const createOrGetDirectChannel = async (req, res) => {
 async function processAiTaskDelegation({
   message = '',
   taggedUserId = null,
+  taggedUserName = null,
+  taggedUserRole = null,
+  taggedUserDepartment = null,
   requireEaFollowup = false,
   userId = 'usr-1',
   channelId = 'chan-ai'
 }) {
-  if (!isConnected()) return null;
-
   try {
-    const allUsers = await query('SELECT id, name, email, role, department, avatar FROM users').catch(() => []);
-    if (!allUsers || allUsers.length === 0) return null;
+    let allUsers = [];
+    if (isConnected()) {
+      allUsers = await query('SELECT id, name, email, role, department, avatar FROM users').catch(() => []);
+    }
+
+    if (!allUsers || allUsers.length === 0) {
+      allUsers = [
+        { id: 'usr-1', name: 'Paras Goyal', role: 'Manager', department: 'Engineering & DevOps' },
+        { id: 'usr-2', name: 'Mohit', role: 'Manager', department: 'Production' },
+        { id: 'usr-3', name: 'Ayush', role: 'Employee', department: 'Engineering & DevOps' },
+        { id: 'usr-4', name: 'NEHA', role: 'EA', department: 'Operations' },
+        { id: 'usr-5', name: 'Paras', role: 'Admin', department: 'Engineering & DevOps' }
+      ];
+    }
 
     let targetUser = null;
     if (taggedUserId) {
       targetUser = allUsers.find(u => String(u.id) === String(taggedUserId));
+      if (!targetUser && taggedUserName) {
+        targetUser = {
+          id: taggedUserId,
+          name: taggedUserName,
+          role: taggedUserRole || 'Employee',
+          department: taggedUserDepartment || 'Operations'
+        };
+      }
     }
 
     const rawMsg = (message || '').trim() || (targetUser ? `Operational task delegated to ${targetUser.name}` : '');
@@ -879,13 +900,7 @@ async function processAiTaskDelegation({
       notificationDispatched: true
     };
 
-    const replyText = `🎯 **Task Delegated & Transmitted Successfully**\n\n` +
-      `• **Task ID:** ${taskId}\n` +
-      `• **Task:** ${cleanTitle}\n` +
-      `• **Assigned Officer:** ${targetUser.name} (${targetUser.role} • ${targetUser.department || 'Operations'})\n` +
-      `• **Priority & SLA:** High Priority • Target Timeline 48h\n` +
-      `${isEa ? `• **Executive Surveillance:** EA Follow-Up Active (Supervised by ${eaAssignedUser?.name || 'EA'})\n` : `• **Governance:** Standard Workspace Execution\n`}` +
-      `• **Live Status:** 🟢 Dispatched directly to ${targetUser.name}'s system with instant audio alert.`;
+    const replyText = `Task successfully delegated to **${targetUser.name}** and dispatched to their workstation with live system alert.`;
 
     return {
       handled: true,
@@ -923,6 +938,9 @@ export const askAiAssistant = async (req, res) => {
       userId = 'usr-1',
       channelId = 'chan-ai',
       taggedUserId = null,
+      taggedUserName = null,
+      taggedUserRole = null,
+      taggedUserDepartment = null,
       requireEaFollowup = false,
       aiMode = 'auto'
     } = req.body;
@@ -972,6 +990,9 @@ export const askAiAssistant = async (req, res) => {
     const delegationResult = await processAiTaskDelegation({
       message: userPrompt,
       taggedUserId,
+      taggedUserName,
+      taggedUserRole,
+      taggedUserDepartment,
       requireEaFollowup,
       userId,
       channelId: targetChannelId

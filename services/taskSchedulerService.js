@@ -288,3 +288,4 @@ export function startTaskScheduler(intervalMs = 10000) {
     checkAndDispatchScheduledTasks();
   }, intervalMs);
 }
+
