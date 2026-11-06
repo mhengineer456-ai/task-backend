@@ -800,6 +800,24 @@ export function analyzeCuttingIntent(text) {
 }
 
 /**
+ * Sanitizes markdown bold and bullet formatting from AI output.
+ * Eliminates broken asterisks e.g. "**Key: ** Value" -> "**Key:** Value"
+ * and ensures no unparsed "star icons" appear in client responses.
+ */
+export function sanitizeAiMarkdown(rawText) {
+  if (!rawText || typeof rawText !== 'string') return rawText;
+  return rawText
+    // 1. Fix "**Key: ** Val" -> "**Key:** Val"
+    .replace(/\*\*([^*:\n]+):\s*\*\*/g, '**$1:**')
+    // 2. Fix "**Key : ** Val" -> "**Key:** Val"
+    .replace(/\*\*([^*:\n]+)\s*:\s*\*\*/g, '**$1:**')
+    // 3. Fix "**Key **" -> "**Key**" (do not cross newlines)
+    .replace(/\*\*([^*:\n]+)\s+\*\*/g, '**$1**')
+    // 4. Fix bullets with broken asterisks e.g. "• **Total Master Orders: " -> "• **Total Master Orders:** "
+    .replace(/^\s*([*•-])\s*\*\*([^*:\n]+):\s*(?!\*\*)/gm, '$1 **$2:** ');
+}
+
+/**
  * Robust AI Response Generator (Powered by Google Gemini with n8n fallback)
  */
 export async function generateAiResponseWithGemini({
@@ -867,7 +885,7 @@ CRITICAL FORMATTING GUIDELINES (FOR RESPONSIVE WEB & MOBILE):
           if (res.ok) {
             const data = await res.json();
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (text && text.trim()) return text.trim();
+            if (text && text.trim()) return sanitizeAiMarkdown(text.trim());
           }
         } catch (e) {
           clearTimeout(timeoutId);
@@ -896,7 +914,7 @@ CRITICAL FORMATTING GUIDELINES (FOR RESPONSIVE WEB & MOBILE):
       }
 
       if (answer) {
-        return answer;
+        return sanitizeAiMarkdown(answer);
       }
     } catch (err) {
       console.warn('Gemini direct call notice:', err.message);
@@ -905,7 +923,7 @@ CRITICAL FORMATTING GUIDELINES (FOR RESPONSIVE WEB & MOBILE):
 
   // If rich, verified factory fallback text is already available, prefer it instantly!
   if (fallbackText && fallbackText.length > 20 && !fallbackText.includes('Factory Suite Pro AI Engine is active')) {
-    return fallbackText;
+    return sanitizeAiMarkdown(fallbackText);
   }
 
   // Fallback to n8n multi-sheet AI webhook only if configured and not localhost on production
@@ -930,7 +948,7 @@ CRITICAL FORMATTING GUIDELINES (FOR RESPONSIVE WEB & MOBILE):
         const n8nData = await n8nRes.json().catch(() => null);
         const reply = n8nData?.output || n8nData?.text || n8nData?.message || n8nData?.response;
         if (reply && String(reply).trim()) {
-          return String(reply).trim();
+          return sanitizeAiMarkdown(String(reply).trim());
         }
       }
     } catch (n8nErr) {
@@ -938,7 +956,7 @@ CRITICAL FORMATTING GUIDELINES (FOR RESPONSIVE WEB & MOBILE):
     }
   }
 
-  return fallbackText || 'Factory Suite Pro AI Engine is active and ready to assist you.';
+  return sanitizeAiMarkdown(fallbackText || 'Factory Suite Pro AI Engine is active and ready to assist you.');
 }
 
 /**
