@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { query, isConnected } from '../config/db.js';
 import { config } from '../config/config.js';
+import { readDb, writeDb } from '../data/dbStore.js';
 import {
   broadcastChatMessage,
   broadcastReaction,
@@ -622,7 +623,121 @@ export const createOrGetDirectChannel = async (req, res) => {
 };
 
 /**
- * Helper: Detects and processes AI Task Delegation with user tagging and EA follow-up
+ * Helper: Detects scheduling intent and parses target datetime from natural language
+ */
+function detectScheduleInPrompt(rawText) {
+  const text = (rawText || '').trim();
+  if (!text) return { isScheduled: false, scheduledAt: null };
+
+  const hasScheduleKeyword = /\b(schedule|scheduled|scheduling|allot|allotted|allotment|trigger\s*at|dispatch\s*at|deliver\s*at)\b/i.test(text);
+  const now = new Date();
+  let targetDate = null;
+
+  // 1. Relative: in X mins / hours / days
+  const relMatch = text.match(/\bin\s+(\d+(?:\.\d+)?)\s*(mins?|minutes?|hrs?|hours?|days?)\b/i);
+  if (relMatch) {
+    const val = parseFloat(relMatch[1]);
+    const unit = relMatch[2].toLowerCase();
+    let ms = 0;
+    if (unit.startsWith('min')) ms = val * 60 * 1000;
+    else if (unit.startsWith('hr') || unit.startsWith('hour')) ms = val * 60 * 60 * 1000;
+    else if (unit.startsWith('day')) ms = val * 24 * 60 * 60 * 1000;
+    targetDate = new Date(now.getTime() + ms);
+  }
+
+  // 2. Tomorrow: tomorrow at 10 AM / tomorrow 4 PM / tomorrow morning / etc.
+  if (!targetDate) {
+    const tomMatch = text.match(/\btomorrow(?:\s*(?:at|by))?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i);
+    if (tomMatch) {
+      let h = parseInt(tomMatch[1], 10);
+      const m = tomMatch[2] ? parseInt(tomMatch[2], 10) : 0;
+      const meridiem = (tomMatch[3] || '').toLowerCase();
+      if (meridiem === 'pm' && h < 12) h += 12;
+      if (meridiem === 'am' && h === 12) h = 0;
+      if (!meridiem && h < 8) h += 12;
+      targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, h, m, 0);
+    } else if (/\btomorrow\s*(morning)\b/i.test(text)) {
+      targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 9, 0, 0);
+    } else if (/\btomorrow\s*(afternoon)\b/i.test(text)) {
+      targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 14, 0, 0);
+    } else if (/\btomorrow\s*(evening)\b/i.test(text)) {
+      targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 18, 0, 0);
+    } else if (/\btomorrow\s*(night)\b/i.test(text)) {
+      targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 20, 0, 0);
+    } else if (/\btomorrow\b/i.test(text) && hasScheduleKeyword) {
+      targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 9, 0, 0);
+    }
+  }
+
+  // 3. Time today or next occurrence: at 4 PM / at 10:30 am / today at 3 PM
+  if (!targetDate) {
+    const timeMatch = text.match(/\b(?:today\s*)?(?:at|by)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i);
+    if (timeMatch) {
+      let h = parseInt(timeMatch[1], 10);
+      const m = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
+      const meridiem = (timeMatch[3] || '').toLowerCase();
+      if (meridiem === 'pm' && h < 12) h += 12;
+      if (meridiem === 'am' && h === 12) h = 0;
+      let cand = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0);
+      if (cand.getTime() <= now.getTime()) {
+        cand = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, h, m, 0);
+      }
+      targetDate = cand;
+    }
+  }
+
+  // 4. Explicit date string match: 2026-11-07 10:00 or 2026-11-07T10:00
+  if (!targetDate) {
+    const isoMatch = text.match(/\b(\d{4}-\d{2}-\d{2})[T\s](\d{1,2}:\d{2})\b/);
+    if (isoMatch) {
+      const parsed = new Date(`${isoMatch[1]}T${isoMatch[2]}`);
+      if (!isNaN(parsed.getTime())) {
+        targetDate = parsed;
+      }
+    }
+  }
+
+  // 5. Keyword present without specific time (e.g. "schedule task for @Mohit to check lots")
+  if (!targetDate && hasScheduleKeyword) {
+    targetDate = new Date(now.getTime() + 60 * 60 * 1000);
+  }
+
+  if (targetDate) {
+    const pad = n => String(n).padStart(2, '0');
+    const formatted = `${targetDate.getFullYear()}-${pad(targetDate.getMonth() + 1)}-${pad(targetDate.getDate())}T${pad(targetDate.getHours())}:${pad(targetDate.getMinutes())}`;
+    return { isScheduled: true, scheduledAt: formatted };
+  }
+
+  return { isScheduled: false, scheduledAt: null };
+}
+
+/**
+ * Helper: Cleans task title from mentions, scheduling directives, and prefixes
+ */
+function cleanTaskTitle(rawMsg, cleanedMentionName) {
+  let text = rawMsg || '';
+  if (cleanedMentionName) text = text.replace(cleanedMentionName, '');
+  text = text
+    .replace(/@\S+/g, '')
+    .replace(/\b(?:schedule|scheduled|scheduling|allot|allotted)\s*(?:a\s*)?(?:this\s*)?(?:task)?(?:\s*for|\s*to)?/gi, '')
+    .replace(/\btomorrow(?:\s*(?:at|by))?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/gi, '')
+    .replace(/\b(?:today\s*)?(?:at|by)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/gi, '')
+    .replace(/\bin\s+\d+(?:\.\d+)?\s*(?:mins?|minutes?|hrs?|hours?|days?)\b/gi, '')
+    .replace(/\btomorrow\s*(?:morning|afternoon|evening|night)?\b/gi, '')
+    .replace(/^(create\s*task|task|assign\s*task|assign\s*to\s*[^:]+:|please|kripya|assign|plz|urgent|schedule\s*this\s*task|schedule\s*task)\s*/gi, '')
+    .replace(/^(?:this\s*task|the\s*task)\s*[:\s-]*/gi, '')
+    .replace(/^[:\s\-–—]+/, '')
+    .replace(/\s*(with|and)\s*ea\s*follow\s*up.*$/gi, '')
+    .trim();
+
+  if (/^to\s+/i.test(text)) {
+    text = text.replace(/^to\s+/i, '').trim();
+  }
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : '';
+}
+
+/**
+ * Helper: Detects and processes AI Task Delegation with user tagging, scheduling, and EA follow-up
  */
 async function processAiTaskDelegation({
   message = '',
@@ -631,6 +746,8 @@ async function processAiTaskDelegation({
   taggedUserRole = null,
   taggedUserDepartment = null,
   requireEaFollowup = false,
+  isScheduled = false,
+  scheduledAt = null,
   userId = 'usr-1',
   channelId = 'chan-ai'
 }) {
@@ -730,26 +847,28 @@ async function processAiTaskDelegation({
       /\b(ea|executive\s*assistant|follow\s*up|followup|follow-up)\b/i.test(rawMsg)
     );
 
-    // Clean task title
-    let cleanTitle = rawMsg;
-    if (cleanedMentionName) {
-      cleanTitle = cleanTitle.replace(cleanedMentionName, '');
-    }
-    cleanTitle = cleanTitle
-      .replace(/@\S+/g, '')
-      .replace(/^(create\s*task|task|assign\s*task|assign\s*to\s*[^:]+:|please|kripya|assign|plz|urgent)\s*/i, '')
-      .replace(/\s*(with|and)\s*ea\s*follow\s*up.*$/i, '')
-      .trim();
+    // Check for scheduling intent either from explicit parameters or natural language prompt
+    let effectiveIsScheduled = Boolean(isScheduled);
+    let targetScheduledAt = scheduledAt || null;
 
+    if (!effectiveIsScheduled || !targetScheduledAt) {
+      const detected = detectScheduleInPrompt(rawMsg);
+      if (detected.isScheduled) {
+        effectiveIsScheduled = true;
+        targetScheduledAt = targetScheduledAt || detected.scheduledAt;
+      }
+    }
+
+    // Clean task title
+    let cleanTitle = cleanTaskTitle(rawMsg, cleanedMentionName);
     if (!cleanTitle || cleanTitle.length < 3) {
       cleanTitle = `Task delegated to ${targetUser.name}: Operational assignment`;
     }
 
-    cleanTitle = cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1);
-
     const taskId = `TSK-${Math.floor(1000 + Math.random() * 9000)}`;
     const nowIso = new Date().toISOString();
     const dueDate = new Date(Date.now() + 86400000 * 2).toISOString().slice(0, 16);
+    const taskStatus = effectiveIsScheduled ? 'Scheduled' : 'Assigned';
 
     const taskRecord = {
       id: taskId,
@@ -761,11 +880,11 @@ async function processAiTaskDelegation({
       assignee_id: targetUser.id,
       creator_id: creatorUser.id,
       priority: 'High',
-      status: 'Assigned',
+      status: taskStatus,
       start_date: nowIso.slice(0, 16),
       due_date: dueDate,
       estimated_hours: 4,
-      tags: JSON.stringify(['AI-Delegated', ...(isEa ? ['EA-Followup'] : [])]),
+      tags: JSON.stringify(['AI-Delegated', ...(effectiveIsScheduled ? ['Scheduled-Dispatch'] : []), ...(isEa ? ['EA-Followup'] : [])]),
       checklist: '[]',
       comments: '[]',
       activity_log: JSON.stringify([
@@ -773,27 +892,60 @@ async function processAiTaskDelegation({
           id: `act-${Date.now()}`,
           timestamp: nowIso,
           userId: creatorUser.id,
-          action: `Task created via AI Copilot by ${creatorUser.name} and assigned to ${targetUser.name}${isEa ? ' with EA follow-up' : ''}`
+          action: effectiveIsScheduled
+            ? `⚡ Task scheduled via AI Copilot by ${creatorUser.name} to trigger for ${targetUser.name} at ${targetScheduledAt}${isEa ? ' with EA follow-up' : ''}`
+            : `Task created via AI Copilot by ${creatorUser.name} and assigned to ${targetUser.name}${isEa ? ' with EA follow-up' : ''}`
         }
       ]),
       progress: 0,
-      followups: '[]'
+      followups: '[]',
+      scheduled_at: effectiveIsScheduled ? targetScheduledAt : null,
+      is_scheduled: effectiveIsScheduled ? 1 : 0,
+      dispatched_at: null
     };
 
-    // 1. Insert into tasks table
-    await query(`
-      INSERT INTO tasks (
-        id, title, description, category, department, project, assignee_id,
-        creator_id, priority, status, start_date, due_date, estimated_hours,
-        tags, checklist, comments, activity_log, progress, followups
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      taskRecord.id, taskRecord.title, taskRecord.description, taskRecord.category,
-      taskRecord.department, taskRecord.project, taskRecord.assignee_id, taskRecord.creator_id,
-      taskRecord.priority, taskRecord.status, taskRecord.start_date, taskRecord.due_date,
-      taskRecord.estimated_hours, taskRecord.tags, taskRecord.checklist, taskRecord.comments,
-      taskRecord.activity_log, taskRecord.progress, taskRecord.followups
-    ]);
+    // 1. Insert into tasks table (or fallback store)
+    if (isConnected()) {
+      await query(`
+        INSERT INTO tasks (
+          id, title, description, category, department, project, assignee_id,
+          creator_id, priority, status, start_date, due_date, estimated_hours,
+          tags, checklist, comments, activity_log, progress, followups,
+          scheduled_at, is_scheduled, dispatched_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        taskRecord.id, taskRecord.title, taskRecord.description, taskRecord.category,
+        taskRecord.department, taskRecord.project, taskRecord.assignee_id, taskRecord.creator_id,
+        taskRecord.priority, taskRecord.status, taskRecord.start_date, taskRecord.due_date,
+        taskRecord.estimated_hours, taskRecord.tags, taskRecord.checklist, taskRecord.comments,
+        taskRecord.activity_log, taskRecord.progress, taskRecord.followups,
+        taskRecord.scheduled_at, taskRecord.is_scheduled, taskRecord.dispatched_at
+      ]);
+    } else {
+      const db = readDb();
+      const newTask = {
+        id: taskId,
+        title: cleanTitle,
+        description: rawMsg,
+        category: 'Production & Operations',
+        department: targetUser.department || creatorUser.department || 'Operations',
+        project: 'Factory Suite Pro',
+        assigneeId: targetUser.id,
+        creatorId: creatorUser.id,
+        priority: 'High',
+        status: taskStatus,
+        isScheduled: effectiveIsScheduled,
+        scheduledAt: effectiveIsScheduled ? targetScheduledAt : null,
+        dispatchedAt: null,
+        startDate: nowIso.slice(0, 16),
+        dueDate,
+        tags: ['AI-Delegated', ...(effectiveIsScheduled ? ['Scheduled-Dispatch'] : []), ...(isEa ? ['EA-Followup'] : [])],
+        progress: 0,
+        followups: []
+      };
+      db.tasks = [newTask, ...(db.tasks || [])];
+      writeDb(db);
+    }
 
     // 2. Broadcast task:created event
     broadcastTaskCreated({
@@ -802,26 +954,53 @@ async function processAiTaskDelegation({
       creatorId: creatorUser.id,
       assigneeName: targetUser.name,
       creatorName: creatorUser.name,
-      tags: ['AI-Delegated', ...(isEa ? ['EA-Followup'] : [])]
+      isScheduled: effectiveIsScheduled,
+      scheduledAt: effectiveIsScheduled ? targetScheduledAt : null,
+      tags: ['AI-Delegated', ...(effectiveIsScheduled ? ['Scheduled-Dispatch'] : []), ...(isEa ? ['EA-Followup'] : [])]
     });
 
-    // 3. Insert and broadcast notification to the tagged user
-    const userNotifId = `notif-${Date.now()}`;
-    const userNotif = {
-      id: userNotifId,
-      title: '📋 New Task Assigned via AI',
-      message: `Task "${cleanTitle}" (${taskId}) has been assigned to you by ${creatorUser.name}.`,
-      type: 'assignment',
-      taskId: taskId,
-      timestamp: nowIso
-    };
+    // 3. Notification Handling:
+    // If NOT scheduled, notify the assignee immediately.
+    // If scheduled, keep hidden from assignee and notify creator about automated queue staging.
+    if (!effectiveIsScheduled) {
+      const userNotifId = `notif-${Date.now()}`;
+      const userNotif = {
+        id: userNotifId,
+        title: '📋 New Task Assigned via AI',
+        message: `Task "${cleanTitle}" (${taskId}) has been assigned to you by ${creatorUser.name}.`,
+        type: 'assignment',
+        taskId: taskId,
+        timestamp: nowIso
+      };
 
-    await query(
-      'INSERT INTO notifications (id, title, message, type, task_id, user_id, is_read) VALUES (?, ?, ?, ?, ?, ?, 0)',
-      [userNotif.id, userNotif.title, userNotif.message, userNotif.type, userNotif.taskId, targetUser.id]
-    ).catch(() => { });
+      if (isConnected()) {
+        await query(
+          'INSERT INTO notifications (id, title, message, type, task_id, user_id, is_read) VALUES (?, ?, ?, ?, ?, ?, 0)',
+          [userNotif.id, userNotif.title, userNotif.message, userNotif.type, userNotif.taskId, targetUser.id]
+        ).catch(() => { });
+      }
 
-    broadcastNotification(userNotif, targetUser.id);
+      broadcastNotification(userNotif, targetUser.id);
+    } else {
+      const creatorNotifId = `notif-sched-${Date.now()}`;
+      const creatorNotif = {
+        id: creatorNotifId,
+        title: '⏰ Task Scheduled in Automations Pipeline',
+        message: `Task "${cleanTitle}" (${taskId}) staged for ${targetUser.name}. Will trigger automatically at ${targetScheduledAt}.`,
+        type: 'info',
+        taskId: taskId,
+        timestamp: nowIso
+      };
+
+      if (isConnected()) {
+        await query(
+          'INSERT INTO notifications (id, title, message, type, task_id, user_id, is_read) VALUES (?, ?, ?, ?, ?, ?, 0)',
+          [creatorNotif.id, creatorNotif.title, creatorNotif.message, creatorNotif.type, creatorNotif.taskId, creatorUser.id]
+        ).catch(() => { });
+      }
+
+      broadcastNotification(creatorNotif, creatorUser.id);
+    }
 
     // 4. If EA follow-up requested, create EA follow-up and notify all EA users
     let eaFollowupId = null;
@@ -832,46 +1011,48 @@ async function processAiTaskDelegation({
       const eaUsers = allUsers.filter(u => u.role === 'EA');
       eaAssignedUser = eaUsers.length > 0 ? eaUsers[0] : null;
 
-      await query(`
-        INSERT INTO ea_followups (
-          id, task_id, task_title, assignee_id, assignee_name, channel,
-          action_notes, action_required, next_followup_date, status,
-          is_escalated_to_md, logged_by, logged_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [
-        eaFollowupId,
-        taskId,
-        cleanTitle,
-        targetUser.id,
-        targetUser.name,
-        'AI Copilot Delegation',
-        `AI Task assigned by ${creatorUser.name}. Follow up required on execution.`,
-        'Follow up with assignee on progress and execution.',
-        new Date(Date.now() + 86400000).toISOString().slice(0, 10),
-        'Pending Follow-up',
-        0,
-        `${creatorUser.name} (via AI)`,
-        nowIso
-      ]).catch(e => console.warn('EA Followup insert warning:', e.message));
+      if (isConnected()) {
+        await query(`
+          INSERT INTO ea_followups (
+            id, task_id, task_title, assignee_id, assignee_name, channel,
+            action_notes, action_required, next_followup_date, status,
+            is_escalated_to_md, logged_by, logged_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          eaFollowupId,
+          taskId,
+          cleanTitle,
+          targetUser.id,
+          targetUser.name,
+          'AI Copilot Delegation',
+          `AI Task assigned by ${creatorUser.name}. Follow up required on execution.`,
+          'Follow up with assignee on progress and execution.',
+          new Date(Date.now() + 86400000).toISOString().slice(0, 10),
+          'Pending Follow-up',
+          0,
+          `${creatorUser.name} (via AI)`,
+          nowIso
+        ]).catch(e => console.warn('EA Followup insert warning:', e.message));
 
-      // Notify all EA users
-      for (const ea of eaUsers) {
-        const eaNotifId = `notif-ea-${Date.now()}-${ea.id}`;
-        const eaNotif = {
-          id: eaNotifId,
-          title: '⚡ EA Follow-Up Scheduled',
-          message: `Task "${cleanTitle}" (${taskId}) assigned to ${targetUser.name} requires your follow-up.`,
-          type: 'approval',
-          taskId: taskId,
-          timestamp: nowIso
-        };
+        // Notify all EA users
+        for (const ea of eaUsers) {
+          const eaNotifId = `notif-ea-${Date.now()}-${ea.id}`;
+          const eaNotif = {
+            id: eaNotifId,
+            title: '⚡ EA Follow-Up Scheduled',
+            message: `Task "${cleanTitle}" (${taskId}) assigned to ${targetUser.name} requires your follow-up.`,
+            type: 'approval',
+            taskId: taskId,
+            timestamp: nowIso
+          };
 
-        await query(
-          'INSERT INTO notifications (id, title, message, type, task_id, user_id, is_read) VALUES (?, ?, ?, ?, ?, ?, 0)',
-          [eaNotif.id, eaNotif.title, eaNotif.message, eaNotif.type, eaNotif.taskId, ea.id]
-        ).catch(() => { });
+          await query(
+            'INSERT INTO notifications (id, title, message, type, task_id, user_id, is_read) VALUES (?, ?, ?, ?, ?, ?, 0)',
+            [eaNotif.id, eaNotif.title, eaNotif.message, eaNotif.type, eaNotif.taskId, ea.id]
+          ).catch(() => { });
 
-        broadcastNotification(eaNotif, ea.id);
+          broadcastNotification(eaNotif, ea.id);
+        }
       }
     }
 
@@ -894,13 +1075,29 @@ async function processAiTaskDelegation({
       hasEaFollowup: isEa,
       eaFollowupId,
       eaAssignedName: eaAssignedUser?.name || 'Executive Assistant (EA)',
-      status: 'Assigned',
+      status: taskStatus,
+      isScheduled: effectiveIsScheduled,
+      scheduledAt: effectiveIsScheduled ? targetScheduledAt : null,
       priority: 'High',
       dueDate,
-      notificationDispatched: true
+      notificationDispatched: !effectiveIsScheduled
     };
 
-    const replyText = `Task successfully delegated to **${targetUser.name}** and dispatched to their workstation with live system alert.`;
+    let replyText = '';
+    if (effectiveIsScheduled) {
+      const formattedTrigger = targetScheduledAt
+        ? new Date(targetScheduledAt).toLocaleString('en-US', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          })
+        : targetScheduledAt;
+      replyText = `Task staged for **${targetUser.name}** and scheduled to trigger at **${formattedTrigger}**. Hidden from assignee until trigger.`;
+    } else {
+      replyText = `Task successfully delegated to **${targetUser.name}** and dispatched to their workstation with live system alert.`;
+    }
 
     return {
       handled: true,
@@ -915,8 +1112,24 @@ async function processAiTaskDelegation({
 
 export const delegateAiTask = async (req, res) => {
   try {
-    const { message, taggedUserId, requireEaFollowup = false, userId = 'usr-1', channelId = 'chan-ai' } = req.body;
-    const result = await processAiTaskDelegation({ message, taggedUserId, requireEaFollowup, userId, channelId });
+    const {
+      message,
+      taggedUserId,
+      requireEaFollowup = false,
+      isScheduled = false,
+      scheduledAt = null,
+      userId = 'usr-1',
+      channelId = 'chan-ai'
+    } = req.body;
+    const result = await processAiTaskDelegation({
+      message,
+      taggedUserId,
+      requireEaFollowup,
+      isScheduled,
+      scheduledAt,
+      userId,
+      channelId
+    });
     if (result && result.handled) {
       return res.status(201).json({ success: true, ...result });
     }
@@ -942,6 +1155,8 @@ export const askAiAssistant = async (req, res) => {
       taggedUserRole = null,
       taggedUserDepartment = null,
       requireEaFollowup = false,
+      isScheduled = false,
+      scheduledAt = null,
       aiMode = 'auto'
     } = req.body;
     let finalImageUrl = imageUrl || image || dataUrl || null;
@@ -994,6 +1209,8 @@ export const askAiAssistant = async (req, res) => {
       taggedUserRole,
       taggedUserDepartment,
       requireEaFollowup,
+      isScheduled,
+      scheduledAt,
       userId,
       channelId: targetChannelId
     });
