@@ -18,6 +18,175 @@ function cleanLot(lot) {
 }
 
 /**
+ * Brand & Trim Synonyms and Phonetic Alias Mapping
+ * Handles common operator spelling variations, double-letter discrepancies, and transliteration differences.
+ */
+export const BRAND_SYNONYMS = {
+  adidas: ['adidas', 'addidas', 'adiddas', 'adida', 'adidass', 'addidass'],
+  addidas: ['adidas', 'addidas', 'adiddas', 'adida', 'adidass', 'addidass'],
+  chanel: ['chanel', 'channal', 'channel', 'chenal', 'chanell', 'channell'],
+  channal: ['chanel', 'channal', 'channel', 'chenal', 'chanell', 'channell'],
+  trapstar: ['trapstar', 'trapster', 'trap star', 'trap ster'],
+  trapster: ['trapstar', 'trapster', 'trap star', 'trap ster'],
+  burberry: ['burberry', 'burburry', 'burbery', 'barbour', 'burbour', 'barbari'],
+  burburry: ['burberry', 'burburry', 'burbery', 'barbour', 'burbour', 'barbari'],
+  essentials: ['essentials', 'essentinal', 'essential', 'fog', 'fear of god'],
+  essentinal: ['essentials', 'essentinal', 'essential', 'fog', 'fear of god'],
+  hermes: ['hermes', 'herms', 'hermez'],
+  herms: ['hermes', 'herms', 'hermez'],
+  loropiana: ['loropiana', 'loropiane', 'loro piana', 'loro piane'],
+  loropiane: ['loropiana', 'loropiane', 'loro piana', 'loro piane'],
+  hackett: ['hackett', 'hacket'],
+  hacket: ['hackett', 'hacket'],
+  calvinklein: ['calvin klein', 'calvin', 'ck', 'c.k', 'c.k.'],
+  ck: ['calvin klein', 'calvin', 'ck', 'c.k', 'c.k.'],
+  'c.k': ['calvin klein', 'calvin', 'ck', 'c.k', 'c.k.'],
+  louisvuitton: ['louis vuitton', 'louis', 'vuitton', 'lv', 'l.v', 'l.v.'],
+  lv: ['louis vuitton', 'louis', 'vuitton', 'lv', 'l.v', 'l.v.'],
+  'l.v': ['louis vuitton', 'louis', 'vuitton', 'lv', 'l.v', 'l.v.'],
+  nike: ['nike', 'nikke', 'nyke'],
+  tommy: ['tommy', 'tomy', 'tommi', 'tommy hilfiger'],
+  zara: ['zara', 'zarra'],
+  diesel: ['diesel', 'disel', 'deejal'],
+  stussy: ['stussy', 'stusy', 'stussi'],
+  bonkers: ['bonkers', 'bonker'],
+  lacoste: ['lacoste', 'lacost'],
+  polo: ['polo', 'ralph lauren', 'polo ralph lauren'],
+  armani: ['armani', 'ea7', 'emporio armani'],
+  carhartt: ['carhartt', 'carhart'],
+  coach: ['coach'],
+  represent: ['represent'],
+  northface: ['north face', 'northface', 'tnf'],
+  scuffers: ['scuffers', 'scuffer'],
+  youngla: ['youngla', 'young la', 'young-la'],
+  qc: ['qc', 'qc jacket'],
+  bottega: ['bottega veneta', 'bottega', 'bv'],
+  acne: ['acne studios', 'acne studio', 'acne'],
+  amiri: ['amiri', 'ameeri'],
+  myshelter: ['myshelter', 'my shelter', 'shelter'],
+  washcare: ['washcare', 'wash care', 'wash-care'],
+  flower: ['flower', 'flor']
+};
+
+/**
+ * Expands any word or search term into all its fuzzy variants:
+ * 1. Exact term
+ * 2. Brand synonym aliases
+ * 3. Collapsed duplicate consonants (e.g. addidas -> adidas, channal -> chanal)
+ * 4. Expanded single-to-double consonants (e.g. adidas -> addidas)
+ * 5. Dot variations (e.g. c.k <-> ck)
+ */
+export function expandFuzzySearchVariants(term) {
+  if (!term || typeof term !== 'string') return [];
+  const raw = term.toLowerCase().trim();
+  const variants = new Set();
+  variants.add(raw);
+
+  // 1. Direct synonym lookup
+  for (const [canonical, aliases] of Object.entries(BRAND_SYNONYMS)) {
+    if (raw === canonical || aliases.includes(raw) || aliases.some(a => raw.includes(a))) {
+      aliases.forEach(a => variants.add(a));
+      variants.add(canonical);
+    }
+  }
+
+  // 2. Consecutive duplicate letter collapse (e.g. addidas -> adidas, channal -> chanal)
+  const collapsed = raw.replace(/(.)\1+/g, '$1');
+  variants.add(collapsed);
+
+  for (const [canonical, aliases] of Object.entries(BRAND_SYNONYMS)) {
+    if (collapsed === canonical || aliases.includes(collapsed)) {
+      aliases.forEach(a => variants.add(a));
+      variants.add(canonical);
+    }
+  }
+
+  // 3. Double common consonants (e.g. adidas -> addidas, chanel -> channal)
+  const commonConsonants = ['d', 'l', 'n', 'r', 's', 't', 'p', 'b', 'c', 'm'];
+  for (const c of commonConsonants) {
+    if (raw.includes(c) && !raw.includes(c + c)) {
+      variants.add(raw.replace(new RegExp(c, 'g'), c + c));
+    }
+  }
+
+  // 4. Dot variations for acronyms: c.k <-> ck, l.v <-> lv
+  if (raw.includes('.')) {
+    variants.add(raw.replace(/\./g, ''));
+  } else if (raw.length === 2) {
+    variants.add(raw[0] + '.' + raw[1]);
+    variants.add(raw[0] + '.' + raw[1] + '.');
+  }
+
+  return Array.from(variants).filter(v => v.length >= 2);
+}
+
+/**
+ * Standard Levenshtein Distance for typo tolerance
+ */
+export function levenshteinDistance(a, b) {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  const matrix = [];
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        );
+      }
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
+/**
+ * Smart fuzzy string matcher:
+ * Checks direct substring, expanded variants, collapsed duplicates, and Levenshtein token distance.
+ */
+export function isFuzzyMatch(targetText, queryToken, maxDist = 2) {
+  if (!targetText || !queryToken) return false;
+  const normTarget = String(targetText).toLowerCase();
+  const normQuery = String(queryToken).toLowerCase().trim();
+
+  // 1. Direct substring
+  if (normTarget.includes(normQuery)) return true;
+
+  // 2. Check all expanded fuzzy variants
+  const variants = expandFuzzySearchVariants(normQuery);
+  for (const v of variants) {
+    if (normTarget.includes(v)) return true;
+  }
+
+  // 3. Collapsed duplicate letters
+  const colTarget = normTarget.replace(/(.)\1+/g, '$1');
+  const colQuery = normQuery.replace(/(.)\1+/g, '$1');
+  if (colTarget.includes(colQuery) || colQuery.includes(colTarget)) return true;
+
+  // 4. Token-by-token Levenshtein distance
+  const words = normTarget.split(/[\s\-_(),.]+/).filter(Boolean);
+  for (const w of words) {
+    if (w.length >= 3 && Math.abs(w.length - normQuery.length) <= 2) {
+      if (levenshteinDistance(w, normQuery) <= (normQuery.length <= 4 ? 1 : maxDist)) {
+        return true;
+      }
+    }
+    const colW = w.replace(/(.)\1+/g, '$1');
+    if (colW.length >= 3 && levenshteinDistance(colW, colQuery) <= 1) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * 1. WEIGHT CAPTURE QUERIES
  */
 export async function getWeightCaptureByLot(lotNo) {
@@ -189,8 +358,10 @@ export async function searchIssueLogs(query = '', options = {}) {
     }
 
     if (brandMatch) {
-      sql += ` AND LOWER(materials) LIKE LOWER(?)`;
-      params.push(`%${brandMatch}%`);
+      const brandVars = expandFuzzySearchVariants(brandMatch);
+      const brandClauses = brandVars.map(() => `LOWER(materials) LIKE LOWER(?)`);
+      sql += ` AND (${brandClauses.join(' OR ')})`;
+      brandVars.forEach(v => params.push(`%${v}%`));
     }
 
     if (categoryTerm) {
@@ -250,17 +421,22 @@ export async function getMaterialsInventory(options = {}) {
     }
 
     if (search) {
-      const term = `%${search.trim().toLowerCase()}%`;
-      sql += ` AND (
-        LOWER(name) LIKE ? 
-        OR LOWER(id) LIKE ? 
-        OR LOWER(COALESCE(brand, '')) LIKE ? 
-        OR LOWER(COALESCE(itemCode, '')) LIKE ? 
-        OR LOWER(COALESCE(category, '')) LIKE ? 
-        OR LOWER(COALESCE(color, '')) LIKE ? 
-        OR LOWER(COALESCE(location, '')) LIKE ?
-      )`;
-      params.push(term, term, term, term, term, term, term);
+      const variants = expandFuzzySearchVariants(search);
+      const searchClauses = [];
+      for (const v of variants) {
+        const term = `%${v}%`;
+        searchClauses.push(`(
+          LOWER(name) LIKE ? 
+          OR LOWER(id) LIKE ? 
+          OR LOWER(COALESCE(brand, '')) LIKE ? 
+          OR LOWER(COALESCE(itemCode, '')) LIKE ? 
+          OR LOWER(COALESCE(category, '')) LIKE ? 
+          OR LOWER(COALESCE(color, '')) LIKE ? 
+          OR LOWER(COALESCE(location, '')) LIKE ?
+        )`);
+        params.push(term, term, term, term, term, term, term);
+      }
+      sql += ` AND (${searchClauses.join(' OR ')})`;
     }
 
     if (lowStockOnly) {
@@ -271,6 +447,30 @@ export async function getMaterialsInventory(options = {}) {
     params.push(Number(limit) || 100);
 
     const rows = await accessoryQuery(sql, params);
+    if (rows && rows.length > 0) return rows;
+
+    // Fallback: If search was provided and returned 0 rows from SQL,
+    // load broader list and perform deep fuzzy string matching
+    if (search && (!rows || rows.length === 0)) {
+      let fallbackSql = `SELECT * FROM materials WHERE 1=1`;
+      const fallbackParams = [];
+      if (category) {
+        fallbackSql += ` AND LOWER(category) = LOWER(?)`;
+        fallbackParams.push(category);
+      }
+      fallbackSql += ` ORDER BY stock DESC LIMIT 300`;
+      const allRows = await accessoryQuery(fallbackSql, fallbackParams);
+      if (allRows && allRows.length > 0) {
+        const fuzzyMatched = allRows.filter(r =>
+          isFuzzyMatch(r.name, search) ||
+          isFuzzyMatch(r.brand, search) ||
+          isFuzzyMatch(r.category, search) ||
+          isFuzzyMatch(r.itemCode, search)
+        );
+        if (fuzzyMatched.length > 0) return fuzzyMatched;
+      }
+    }
+
     return rows || [];
   } catch (err) {
     console.warn('[Accessory Service] Error querying materials inventory:', err.message);
@@ -408,14 +608,17 @@ export async function searchAccessoryMaterialsSmart(queryStr, options = {}) {
         catParams.push('%washal%');
       }
 
-      // If a brand token was also present (e.g. "amiri tag"), filter by that brand as well
+      // If a brand token was also present (e.g. "amiri tag", "adidas label"), filter by that brand as well
       if (brandTokens.length > 0) {
         let brandConditions = [];
         let brandParams = [];
         for (const bt of brandTokens) {
-          brandConditions.push('(LOWER(name) LIKE ? OR LOWER(COALESCE(brand, "")) LIKE ? OR LOWER(COALESCE(itemCode, "")) LIKE ?)');
-          const pVal = `%${bt}%`;
-          brandParams.push(pVal, pVal, pVal);
+          const variants = expandFuzzySearchVariants(bt);
+          for (const v of variants) {
+            brandConditions.push('(LOWER(name) LIKE ? OR LOWER(COALESCE(brand, "")) LIKE ? OR LOWER(COALESCE(itemCode, "")) LIKE ?)');
+            const pVal = `%${v}%`;
+            brandParams.push(pVal, pVal, pVal);
+          }
         }
         const sql = `SELECT * FROM materials WHERE (${catClauses.join(' OR ')}) AND (${brandConditions.join(' OR ')}) ORDER BY stock DESC LIMIT 200`;
         const brandRows = await accessoryQuery(sql, [...catParams, ...brandParams]);
@@ -429,11 +632,16 @@ export async function searchAccessoryMaterialsSmart(queryStr, options = {}) {
           return anyBrandRows;
         }
 
-        // If brand was searched and nothing found anywhere in DB, fall back to returning ALL items of this category!
-        // (Because user definitely asked for this category, e.g. "LABEL", and the brand token was likely a conversational word or typo)
+        // Try in-memory fuzzy match across all category items
         const catSqlFallback = `SELECT * FROM materials WHERE (${catClauses.join(' OR ')}) ORDER BY stock DESC LIMIT 300`;
         const allCatRowsFallback = await accessoryQuery(catSqlFallback, catParams);
-        if (allCatRowsFallback && allCatRowsFallback.length > 0) return allCatRowsFallback;
+        if (allCatRowsFallback && allCatRowsFallback.length > 0) {
+          const fuzzyMatches = allCatRowsFallback.filter(r =>
+            brandTokens.some(bt => isFuzzyMatch(r.name, bt) || isFuzzyMatch(r.brand, bt) || isFuzzyMatch(r.itemCode, bt))
+          );
+          if (fuzzyMatches.length > 0) return fuzzyMatches;
+          return allCatRowsFallback;
+        }
         return [];
       }
 
@@ -443,13 +651,22 @@ export async function searchAccessoryMaterialsSmart(queryStr, options = {}) {
       if (allCatRows && allCatRows.length > 0) return allCatRows;
     }
 
-    // Case B: General Brand / Item Name search (e.g. "amiri", "brooks brothers", "ST00001")
+    // Case B: General Brand / Item Name search (e.g. "amiri", "brooks brothers", "adidas", "addidas", "ST00001")
     let rows = await getMaterialsInventory({ search: raw, limit: options.limit || 100 });
     if (rows && rows.length > 0) return rows;
 
     for (const token of brandTokens) {
       const candidate = await getMaterialsInventory({ search: token, limit: 100 });
       if (candidate && candidate.length > 0) return candidate;
+    }
+
+    // Broad catalog fallback with deep fuzzy scoring
+    const allMaterials = await accessoryQuery(`SELECT * FROM materials ORDER BY stock DESC LIMIT 300`);
+    if (allMaterials && allMaterials.length > 0) {
+      const matched = allMaterials.filter(r =>
+        brandTokens.some(bt => isFuzzyMatch(r.name, bt) || isFuzzyMatch(r.brand, bt) || isFuzzyMatch(r.category, bt) || isFuzzyMatch(r.itemCode, bt))
+      );
+      if (matched.length > 0) return matched;
     }
   } catch (err) {
     console.warn('[Accessory Service] Error in smart search:', err.message);

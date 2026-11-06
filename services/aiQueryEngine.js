@@ -2296,7 +2296,8 @@ export async function processUniversalQuery(prompt, context = {}) {
   const looksLikeMaterialInquiry = aiMode === 'production' ? false : (aiMode === 'accessory' ? true : (
     !isPurePartyProductionQuery && !isGarmentProductionQuery && !/\b(fabric\s*only|kapda\s*only)\b/i.test(lower) && (
       /\b(stock|inventory|godown|rack|location|p(?:a|d)a\s*h|available|raw\s*materials?)\b/i.test(lower) ||
-      /\b(label|labels|tag|tags|button|buttons|zip|zipper|dori|tape|tapes|patch|patches|polybeg|polybag|elastic|thread|bone|rivet|stopper|cuff)\b/i.test(lower)
+      /\b(label|labels|tag|tags|button|buttons|zip|zipper|dori|tape|tapes|patch|patches|polybeg|polybag|elastic|thread|bone|rivet|stopper|cuff)\b/i.test(lower) ||
+      /\b(adidas|addidas|chanel|channal|trapstar|trapster|burberry|burburry|amiri|bonkers|stussy|lacoste|polo|armani|youngla)\b/i.test(lower)
     )
   ));
   if (looksLikeMaterialInquiry && !mentionsLot) {
@@ -2329,8 +2330,8 @@ export async function processUniversalQuery(prompt, context = {}) {
   const isMaterialSpecificQuery = !isIssueLogsQuery && !isGarmentProductionQuery && !isPurePartyProductionQuery && (
     !!preMatchedMaterials ||
     (/\b(kitna\s*p(?:a|d)a|kitna\s*bacha|kitne\s*bache|kitni\s*bachi|kitna\s*stock|kitne?\s*(?:pcs|piece|meter|roll|packet|pkt)|stock|inventory|godown|rack|location|available|with\s*photo|photo|image|pic|tasveer|tasvir|dikhao|bhejo|btana|batao)\b/i.test(lower) &&
-     /\b(label|labels|tag|tags|button|buttons|zip|zipper|dori|tape|tapes|patch|patches|polybeg|polybag|elastic|thread|bone|rivet|stopper|cuff|spray|brooks|chanel|zara|h&m|hm|polo|nike|adidas|gap|levis|calvin|amiri|diesel|coach|carhartt|loropiane)\b/i.test(lower)) ||
-    /\b(brooks|chanel|amiri|cello\s*tape)\b/i.test(lower) ||
+     /\b(label|labels|tag|tags|button|buttons|zip|zipper|dori|tape|tapes|patch|patches|polybeg|polybag|elastic|thread|bone|rivet|stopper|cuff|spray|brooks|chanel|channal|zara|h&m|hm|polo|nike|adidas|addidas|gap|levis|calvin|amiri|diesel|coach|carhartt|loropiane|trapstar|trapster|bonkers|stussy)\b/i.test(lower)) ||
+    /\b(brooks|chanel|channal|amiri|adidas|addidas|trapstar|trapster|bonkers|stussy|cello\s*tape)\b/i.test(lower) ||
     /\b(?:rack|rk)\s*#?\s*([0-9a-z_-]+)\b/i.test(lower)
   );
   const isAccessoryDbStatusQuery = /\b(accessory\s*software|accessory\s*(?:sql\s*)?database|accessory\s*db|another\s*sql|secondary\s*sql|newdata\s*(?:db|database)?)\b/i.test(lower) && /\b(status|connected|link|linked|check|details|credentials)\b/i.test(lower);
@@ -2766,11 +2767,23 @@ Directives:
         const isTagCat = /\b(tags?)\b/i.test(lower);
         const isButtonCat = /\b(buttons?)\b/i.test(lower);
         const isPatchCat = /\b(patch(?:es)?)\b/i.test(lower);
-        let cleanTitle = materials[0]?.category || materials[0]?.brand || materials[0]?.name || p;
-        if (isLabelCat) cleanTitle = 'LABELS';
-        else if (isTagCat) cleanTitle = 'TAGS';
-        else if (isButtonCat) cleanTitle = 'BUTTONS';
-        else if (isPatchCat) cleanTitle = 'PATCHES';
+
+        let detectedBrand = null;
+        if (/addidas|adidas/i.test(lower) || materials.every(m => /addidas|adidas/i.test(m.name || m.brand))) detectedBrand = 'ADIDAS';
+        else if (/channal|chanel/i.test(lower) || materials.every(m => /channal|chanel/i.test(m.name || m.brand))) detectedBrand = 'CHANEL';
+        else if (/amiri/i.test(lower) || materials.every(m => /amiri/i.test(m.name || m.brand))) detectedBrand = 'AMIRI';
+        else if (/trapstar|trapster/i.test(lower) || materials.every(m => /trapstar|trapster/i.test(m.name || m.brand))) detectedBrand = 'TRAPSTAR';
+        else if (/burberry|burburry/i.test(lower) || materials.every(m => /burberry|burburry/i.test(m.name || m.brand))) detectedBrand = 'BURBERRY';
+        else if (/zara/i.test(lower) || materials.every(m => /zara/i.test(m.name || m.brand))) detectedBrand = 'ZARA';
+        else if (/nike/i.test(lower) || materials.every(m => /nike/i.test(m.name || m.brand))) detectedBrand = 'NIKE';
+        else if (/tommy/i.test(lower) || materials.every(m => /tommy/i.test(m.name || m.brand))) detectedBrand = 'TOMMY';
+        else if (/bonkers/i.test(lower) || materials.every(m => /bonkers/i.test(m.name || m.brand))) detectedBrand = 'BONKERS';
+        else if (/stussy/i.test(lower) || materials.every(m => /stussy/i.test(m.name || m.brand))) detectedBrand = 'STUSSY';
+        else if (/diesel/i.test(lower) || materials.every(m => /diesel/i.test(m.name || m.brand))) detectedBrand = 'DIESEL';
+
+        let catPrefix = isLabelCat ? 'LABELS' : (isTagCat ? 'TAGS' : (isButtonCat ? 'BUTTONS' : (isPatchCat ? 'PATCHES' : '')));
+        let cleanTitle = detectedBrand ? (catPrefix ? `${detectedBrand} ${catPrefix}` : detectedBrand) : (catPrefix || materials[0]?.category || materials[0]?.brand || materials[0]?.name || p);
+
         md = formatMaterialDetailCardToMarkdown(materials, cleanTitle, userAskedPhoto);
       } else {
         md = formatMaterialsToMarkdown(materials, title);
@@ -2790,12 +2803,25 @@ Directives:
 
       const isLabelQuery = /\b(labels?)\b/i.test(lower);
       const isTagQuery = /\b(tags?)\b/i.test(lower);
+      let detectedBrandForPrompt = null;
+      if (/addidas|adidas/i.test(lower) || materials.every(m => /addidas|adidas/i.test(m.name || m.brand))) detectedBrandForPrompt = 'ADIDAS';
+      else if (/channal|chanel/i.test(lower) || materials.every(m => /channal|chanel/i.test(m.name || m.brand))) detectedBrandForPrompt = 'CHANEL';
+      else if (/amiri/i.test(lower) || materials.every(m => /amiri/i.test(m.name || m.brand))) detectedBrandForPrompt = 'AMIRI';
+      else if (/trapstar|trapster/i.test(lower) || materials.every(m => /trapstar|trapster/i.test(m.name || m.brand))) detectedBrandForPrompt = 'TRAPSTAR';
+      else if (/burberry|burburry/i.test(lower) || materials.every(m => /burberry|burburry/i.test(m.name || m.brand))) detectedBrandForPrompt = 'BURBERRY';
+
+      const promptTargetName = detectedBrandForPrompt
+        ? (isLabelQuery ? `${detectedBrandForPrompt} LABELS` : isTagQuery ? `${detectedBrandForPrompt} TAGS` : `${detectedBrandForPrompt} items`)
+        : (isLabelQuery ? 'LABELS' : isTagQuery ? 'TAGS' : 'the requested trims/materials');
 
       const sysPrompt = `You are PulseBot AI, the dedicated accessory & trims inventory copilot for Factory Suite Pro.
 The user asked: "${p}".
 CRITICAL HINGLISH PARSING DIRECTIVE:
 - Colloquial phrases like "mra pass", "mera pass", "mere paas", "humare paas", "kitna stock pda hai" mean "in factory stock / with us". NEVER echo or hallucinate "MRA PASS LABEL" or treat "MRA PASS" as a brand or material name!
-- Directly address the requested category: ${isLabelQuery ? 'LABELS' : isTagQuery ? 'TAGS' : 'the requested trims/materials'}. Say naturally: "Aapke paas Labels ka current verified stock niche diya gaya hai:"
+- Directly address the requested category / brand: ${promptTargetName}. Say naturally: "Aapke paas ${promptTargetName} ka current verified stock niche table aur photo gallery mein diya gaya hai:"
+- BRAND SPELLING VARIATIONS & NORMALIZATION:
+  Database records may use operator or phonetic spelling variations (e.g. recorded as "addidas" for Adidas, "channal" for Chanel, "trapster" for Trapstar).
+  These items are verified genuine matches for the user's inquiry! Always address them authoritatively and cleanly under the user's requested brand name (e.g. "Adidas", "Chanel").
 Answer clearly, professionally, and warmly in natural Hindi / Hinglish matching the user.
 
 VERIFIED ACCESSORY SQL DATA SUMMARY (DATABASE: railway.materials):
