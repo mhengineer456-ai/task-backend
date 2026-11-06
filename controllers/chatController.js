@@ -880,12 +880,12 @@ async function processAiTaskDelegation({
     };
 
     const replyText = `🎯 **Task Delegated & Transmitted Successfully**\n\n` +
-      `• **Task ID:** \`${taskId}\`\n` +
+      `• **Task ID:** ${taskId}\n` +
       `• **Task:** ${cleanTitle}\n` +
-      `• **Assigned Officer:** **${targetUser.name}** (${targetUser.role} • ${targetUser.department || 'Operations'})\n` +
+      `• **Assigned Officer:** ${targetUser.name} (${targetUser.role} • ${targetUser.department || 'Operations'})\n` +
       `• **Priority & SLA:** High Priority • Target Timeline 48h\n` +
-      `${isEa ? `• **Executive Surveillance:** **EA Follow-Up Active** (Supervised by **${eaAssignedUser?.name || 'EA'}**)\n` : `• **Governance:** Standard Workspace Execution\n`}` +
-      `• **Live Status:** 🟢 Dispatched directly to **${targetUser.name}**'s system with instant audio alert.`;
+      `${isEa ? `• **Executive Surveillance:** EA Follow-Up Active (Supervised by ${eaAssignedUser?.name || 'EA'})\n` : `• **Governance:** Standard Workspace Execution\n`}` +
+      `• **Live Status:** 🟢 Dispatched directly to ${targetUser.name}'s system with instant audio alert.`;
 
     return {
       handled: true,
