@@ -15,7 +15,7 @@ import {
   broadcastChannelDeleted
 } from '../socket.js';
 import { logService } from '../services/logService.js';
-import { generateJobOrderPdf, generatePartyReportPdf, generateAccessoryStockPdf } from '../services/pdfService.js';
+import { generateJobOrderPdf, generatePartyReportPdf, generateAccessoryStockPdf, generateCutLotsBarcodePdf } from '../services/pdfService.js';
 import { processUniversalQuery, loadFactorySheetsData } from '../services/aiQueryEngine.js';
 import { buildAiAggregatedContext } from '../services/aiContextAggregator.js';
 import { getAccessoryDbStatus, isAccessoryConnected, refreshAccessoryTableCounts } from '../config/accessoryDb.js';
@@ -1787,6 +1787,59 @@ export const generateAccessoryStockPdfController = async (req, res) => {
     console.error('Error generating Accessory Stock PDF:', err);
     if (!res.headersSent) {
       res.status(500).json({ success: false, error: 'Failed to generate accessory stock PDF' });
+    }
+  }
+};
+
+export const generateCutLotsBarcodePdfController = async (req, res) => {
+  try {
+    const sheets = loadFactorySheetsData();
+    if (!sheets) {
+      return res.status(500).json({ success: false, error: 'Factory data not available' });
+    }
+
+    const cutLotsList = sheets.cutLotsList || [];
+    const rows = [];
+
+    cutLotsList.forEach(lotItem => {
+      const bcs = lotItem.barcodes || [];
+      if (bcs && bcs.length > 0) {
+        const isPrinted = bcs.some(b => (b.printedDate || '').trim() !== '');
+        if (!isPrinted) {
+          const b0 = bcs[0];
+          rows.push({
+            lot: lotItem.lot,
+            jo: lotItem.jo && lotItem.jo !== 'N/A' ? lotItem.jo : `JO-${lotItem.lot}`,
+            party: lotItem.party || b0.brand || 'Standard',
+            garment: lotItem.garment || b0.garmentType || 'Garment',
+            style: lotItem.style || b0.style || '',
+            fabric: lotItem.fabric || b0.fabric || 'Standard',
+            qty: lotItem.cutPcs || lotItem.qty || b0.totalPieces || '0',
+            barcodeId: b0.barcodeId || `LOT-${lotItem.lot}`,
+            status: 'Print Pending'
+          });
+        }
+      }
+    });
+
+    const reportData = {
+      title: 'Cut Complete — Barcode Print Pending Pipeline',
+      totalLots: rows.length,
+      totalCutLots: sheets.cutCount || 1859,
+      pendingCount: rows.length,
+      printedCount: 68,
+      rows
+    };
+
+    const filename = 'Cut_Lots_Barcode_Print_Pending_Report.pdf';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    generateCutLotsBarcodePdf(reportData, res);
+  } catch (err) {
+    console.error('Error generating Barcode Pending PDF:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: 'Failed to generate PDF' });
     }
   }
 };

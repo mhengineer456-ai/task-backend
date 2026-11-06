@@ -419,6 +419,12 @@ export function loadFactorySheetsData(forceRefresh = false) {
           lot,
           status: r["Status"] || "",
           generatedDate: r["Generated Date"] || "",
+          printedDate: r["Printed Date"] || "",
+          completedDate: r["Completed Date"] || "",
+          brand: r["Brand"] || "",
+          style: r["Style"] || "",
+          fabric: r["Fabric"] || "",
+          garmentType: r["Garment Type"] || "",
           verificationCode: r["Verification Code"] || "",
           totalPieces: r["Total Pieces"] || "",
           packingSupervisor: r["Packing Supervisor"] || "",
@@ -4578,6 +4584,100 @@ DIRECTIVES:
       handled: true,
       answer: text
     };
+  }
+
+  // =========================================================================
+  // 11.9 CUT COMPLETE LOTS WITHOUT BARCODE / BARCODE PRINT PENDING PIPELINE
+  // =========================================================================
+  const isCutWithoutBarcodeQuery = (
+    /\b(barcode|bar\s*code|stickers?|barcodes?)\b/i.test(lower) &&
+    (
+      (/\b(cut|cutting|kate|kata|complete|pipeline|floor)\b/i.test(lower) && /\b(nhi|nahi|not|pending|unprinted|bina|without|chhut|baaki|baki|bache|remain|missing|print)\b/i.test(lower)) ||
+      /\b(not\s*printed|print\s*pending|pending\s*print|unprinted|without\s*barcode|barcode\s*pending|unprinted\s*barcode)\b/i.test(lower)
+    )
+  ) || /\b(cut.*not.*barcode|barcode.*not.*print|cut.*barcode.*pending|barcode.*not.*printed|cut.*without.*barcode|lot.*cut.*not.*barcode|whose\s*lot\s*is\s*cut\s*and\s*not\s*barcode)\b/i.test(lower);
+
+  if (sheets && isCutWithoutBarcodeQuery) {
+    const cutLotsList = sheets.cutLotsList || [];
+
+    // Filter by party if user specified a particular party/buyer
+    const requestedParty = Array.from(sheets.partiesMap.keys()).find(k => {
+      const partySlug = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const cleanLower = lower.replace(/[^a-z0-9]/g, '');
+      return cleanLower.includes(partySlug) && partySlug.length >= 2;
+    });
+
+    const relevantCutLots = requestedParty 
+      ? cutLotsList.filter(l => (l.party || '').toUpperCase() === requestedParty)
+      : cutLotsList;
+
+    const cutBarcodePending = [];       // Barcode generated in sheet, but Printed Date is empty
+    const cutBarcodePrinted = [];       // Barcode generated and Printed Date is filled
+    const cutBarcodeNotGenerated = [];   // Cut complete, but no barcode entry generated yet
+
+    relevantCutLots.forEach(lotItem => {
+      const bcs = lotItem.barcodes || [];
+      if (!bcs || bcs.length === 0) {
+        cutBarcodeNotGenerated.push(lotItem);
+      } else {
+        const isPrinted = bcs.some(b => (b.printedDate || '').trim() !== '');
+        if (isPrinted) {
+          cutBarcodePrinted.push(lotItem);
+        } else {
+          cutBarcodePending.push(lotItem);
+        }
+      }
+    });
+
+    const totalInScope = relevantCutLots.length;
+    const pendingPrintCount = cutBarcodePending.length;
+    const printedCount = cutBarcodePrinted.length;
+    const notGenCount = cutBarcodeNotGenerated.length;
+
+    let text = `Factory floor ki latest **Verified Factory Operations Data** ke anusar, production pipeline mein un sabhi cut complete lots ka audit status niche diya gaya hai jinka **Barcode sticker print abhi pending** hai:\n\n`;
+
+    // Executive KPI Breakdown bullets formatted for PulseBotMessageRenderer
+    text += `• **Total Cut Complete:** ${totalInScope.toLocaleString('en-IN')} Lots (Cutting Floor Confirmed)\n`;
+    text += `• **Barcode Print Pending:** ${pendingPrintCount.toLocaleString('en-IN')} Lots (Barcode generated, printing pending on floor)\n`;
+    text += `• **Barcode Printed (Confirmed):** ${printedCount.toLocaleString('en-IN')} Lots (Stickers printed & ready)\n`;
+    text += `• **Barcode Not Yet Generated:** ${notGenCount.toLocaleString('en-IN')} Lots (Awaiting barcode generation)\n\n`;
+
+    text += `### 🏷️ Cut Complete — Barcode Print Pending Pipeline\n`;
+    text += `Yeh **${pendingPrintCount} lots** cutting floor par cut complete ho chuke hain aur inka Barcode data ERP system mein generated hai, par physical floor par sticker printing abhi pending hai:\n\n`;
+
+    // Format top 25 lots in pipe-separated format for PulseBotMessageRenderer
+    const displayLots = cutBarcodePending.slice(0, 25);
+    displayLots.forEach((l, idx) => {
+      const bcId = l.barcodes?.[0]?.barcodeId || `LOT-${l.lot}`;
+      const brandStr = l.brand || l.party || 'Article';
+      const styleStr = l.style ? ` ${l.style}` : '';
+      const garmentStr = l.garment ? ` (${l.garment})` : '';
+      const itemDesc = `${brandStr}${styleStr}${garmentStr}`.replace(/\s+/g, ' ').trim();
+      const joNo = l.jo && l.jo !== 'N/A' ? (l.jo.startsWith('JO') ? l.jo : `JO-${l.jo}`) : `JO-${l.lot}`;
+      const qtyStr = `${l.cutPcs || l.qty || '0'} Pcs`;
+      const fabricStr = l.fabric || 'Standard';
+
+      text += `${idx + 1}. Lot ${l.lot}: ${joNo} | ${itemDesc} | Fabric: ${fabricStr} | Qty: ${qtyStr} | Barcode: ${bcId} (Print Pending)\n`;
+    });
+
+    text += `\n---\n\n`;
+    text += `💡 **Floor Action Required:**\n`;
+    text += `* In **${pendingPrintCount} lots** ke thermal barcode stickers floor printer se print karke bundle cards par attach karein taaki Stitching & Finishing handover complete ho sake.\n`;
+    text += `* Shesh **${notGenCount} cut lots** ke liye Barcode Data Sheet mein naye barcode IDs allocate karein.\n\n`;
+    text += `📄 **PDF Report Attached:** Niche diye gaye download card se sabhi **${pendingPrintCount} Barcode Print Pending Lots** ki complete verified report download kar sakte hain.`;
+
+    const res = {
+      handled: true,
+      answer: text,
+      pdfAttachment: {
+        type: 'barcode_pending',
+        partyName: requestedParty || 'All Brands',
+        downloadUrl: `http://localhost:5000/api/chat/pdf/cut-lots-barcode-pending`,
+        filename: `Cut_Lots_Barcode_Print_Pending_Report.pdf`,
+        title: `Cut Complete - Barcode Print Pending Pipeline (${pendingPrintCount} Lots)`
+      }
+    };
+    return res;
   }
 
   // =========================================================================
