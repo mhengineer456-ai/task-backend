@@ -2495,14 +2495,12 @@ DIRECTIVES:
         answer: aiAnswer,
         ...(imageAttachment ? { imageAttachment } : {}),
         ...(imageGallery ? { imageGallery } : {}),
-        ...(isPdfRequested ? {
-          pdfAttachment: {
-            type: 'accessory-stock',
-            downloadUrl: `http://localhost:5000/api/chat/pdf/accessory-stock`,
-            filename: `Accessory_Stock_Report_With_Photos.pdf`,
-            title: `Accessory & Trims Stock Inventory (With Photos)`
-          }
-        } : {})
+        pdfAttachment: {
+          type: 'accessory-stock',
+          downloadUrl: `http://localhost:5000/api/chat/pdf/accessory-stock`,
+          filename: `Accessory_Stock_Report_With_Photos.pdf`,
+          title: `Accessory & Trims Stock Inventory (With Photos)`
+        }
       };
     }
 
@@ -2910,14 +2908,12 @@ STRICT DIRECTIVES:
         answer: aiAnswer,
         ...(imageAttachment ? { imageAttachment } : {}),
         ...(imageGallery ? { imageGallery } : {}),
-        ...(isPdfRequested ? {
-          pdfAttachment: {
-            type: 'accessory-stock',
-            downloadUrl: `http://localhost:5000/api/chat/pdf/accessory-stock`,
-            filename: `Accessory_Stock_Report_With_Photos.pdf`,
-            title: `Accessory & Trims Stock Inventory (With Photos)`
-          }
-        } : {})
+        pdfAttachment: {
+          type: 'accessory-stock',
+          downloadUrl: `http://localhost:5000/api/chat/pdf/accessory-stock?category=${encodeURIComponent(cleanTitle || 'ALL')}&search=${encodeURIComponent(cleanTitle || '')}`,
+          filename: `Accessory_Stock_${String(cleanTitle || 'Report').replace(/[^a-zA-Z0-9_-]/g, '_')}_With_Photos.pdf`,
+          title: `Accessory & Trims Stock Report (${cleanTitle || 'Inventory'})`
+        }
       };
     }
 

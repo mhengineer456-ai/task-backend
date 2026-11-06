@@ -1079,6 +1079,7 @@ export function formatMaterialDetailCardToMarkdown(items, searchTerm = '', userA
   let md = `### 🏷️ Verified Accessory Stock: **${titleName}**\n\n`;
   md += `* 📦 **Total Registered Items:** **${items.length} items**\n`;
   md += `* 🔢 **Grand Total Stock:** **${Number(totalStockSum).toLocaleString()} units** (Across **${totalPacketsSum.toLocaleString()} Packets**)\n`;
+  md += `* 📄 **Official PDF Export:** [📥 Download ${titleName} Stock Report (PDF)](/api/chat/pdf/accessory-stock?category=${encodeURIComponent(titleName)}&search=${encodeURIComponent(titleName)})\n`;
   if (itemsWithImages.length > 0) {
     md += `* 📸 **Verified Photos:** **${itemsWithImages.length} High-Resolution Photos** loaded in the interactive gallery below\n\n`;
   } else {
@@ -1115,6 +1116,7 @@ export function formatMaterialsToMarkdown(materials, title = 'Accessory Material
   }
 
   let md = `### 🧵 ${title}\n\n`;
+  md += `* 📄 **Official PDF Export:** [📥 Download Stock Report (PDF)](/api/chat/pdf/accessory-stock)\n\n`;
   md += `| # | Material Name | Current Stock |\n`;
   md += `| :--- | :--- | :--- |\n`;
 
@@ -1138,6 +1140,7 @@ export function formatLowStockToMarkdown(items) {
   }
 
   let md = `### 🚨 Critical Low Stock Materials & Re-order Alerts\n\n`;
+  md += `* 📄 **Official PDF Export:** [📥 Download Low Stock Report (PDF)](/api/chat/pdf/accessory-stock?lowStock=true)\n\n`;
   md += `| Code | Material Name | Current Stock | Minimum Threshold | Unit | Godown Location | Solution / Re-order Action |\n`;
   md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
 

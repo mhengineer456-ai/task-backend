@@ -27,6 +27,7 @@ import {
   getRecentIssueLogs,
   getIssueLogsByLot,
   getMaterialsInventory,
+  searchAccessoryMaterialsSmart,
   getAccessoryStorageOverview,
   getMaterialTransfers,
   getAccessoryRgpList,
@@ -1728,12 +1729,18 @@ export const generateAccessoryStockPdfController = async (req, res) => {
     } else {
       // 2. Query database for materials
       try {
-        const catFilter = category !== 'ALL' ? category : undefined;
-        items = await getMaterialsInventory({
-          category: catFilter,
-          search: search || undefined,
-          limit: 200
-        });
+        const queryTerm = search || (category !== 'ALL' ? category : '');
+        if (queryTerm) {
+          items = await searchAccessoryMaterialsSmart(queryTerm);
+        }
+        if (!items || items.length === 0) {
+          const catFilter = category !== 'ALL' ? category : undefined;
+          items = await getMaterialsInventory({
+            category: catFilter,
+            search: search || undefined,
+            limit: 300
+          });
+        }
       } catch (dbErr) {
         console.warn('[PDF Controller] Error querying materials for PDF:', dbErr.message);
       }
@@ -1757,6 +1764,9 @@ export const generateAccessoryStockPdfController = async (req, res) => {
       ];
     }
 
+    const totalStock = items.reduce((acc, m) => acc + (Number(m.stock) || 0), 0);
+    const totalPackets = items.reduce((acc, m) => acc + (Number(m.packets) || 0), 0);
+
     const safeCat = String(category || 'Catalog').replace(/[^a-zA-Z0-9_-]/g, '_');
     const filename = `Accessory_Stock_Report_${safeCat}_With_Photos.pdf`;
 
@@ -1766,8 +1776,12 @@ export const generateAccessoryStockPdfController = async (req, res) => {
     await generateAccessoryStockPdf({
       items,
       category,
-      title,
-      summary: req.body?.summary || {}
+      title: title || (category !== 'ALL' ? `Verified Accessory Stock: ${category}` : 'Accessory & Trims Stock Inventory'),
+      summary: {
+        totalStock,
+        totalPackets,
+        ...(req.body?.summary || {})
+      }
     }, res);
   } catch (err) {
     console.error('Error generating Accessory Stock PDF:', err);
