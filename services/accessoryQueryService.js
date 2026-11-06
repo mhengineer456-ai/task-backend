@@ -380,7 +380,10 @@ export async function searchIssueLogs(query = '', options = {}) {
         'records', 'logs', 'log', 'history', 'btao', 'lot', 'lots', 'item', 'items', 'sirf',
         'kya', 'kyu', 'kaun', 'kaunse', 'kab', 'kaha', 'kaise', 'kitna', 'kitne', 'kitni',
         'gya', 'gaya', 'gaye', 'gayi', 'hue', 'hui', 'par', 'pe', 'se', 'me', 'mein',
-        'diye', 'diya', 'liya', 'liye', 'kuch', 'bhi', 'abtak', 'abhi', 'abhitak'
+        'diye', 'diya', 'liya', 'liye', 'kuch', 'bhi', 'abtak', 'abhi', 'abhitak',
+        'sara', 'saara', 'sare', 'saare', 'sari', 'saari', 'sarra', 'sarre', 'sarri',
+        'sab', 'sabhi', 'sbhi', 'sb', 'pura', 'pure', 'puri', 'poora', 'poore', 'poori',
+        'tamam', 'har', 'harek', 'kul', 'kull', 'complete', 'entire', 'full', 'whole'
       ]);
       const words = lower.split(/[\s,]+/).filter(w => w.length > 1 && !stopWords.has(w));
       if (words.length > 0) {
@@ -500,7 +503,7 @@ export async function searchAccessoryMaterialsSmart(queryStr, options = {}) {
   const isTape = /\b(tapes?)\b/i.test(lower);
   const isDori = /\b(dori|doori)\b/i.test(lower);
   const isBone = /\b(bones?)\b/i.test(lower);
-  const isPolybag = /\b(polybegs?|polybags?|begs?)\b/i.test(lower);
+  const isPolybag = /\b(poly\s*begs?|poly\s*bags?|polybegs?|polybags?|polbegs?|polbags?|lifaf(?:a|e|aa)?|packing\s*(?:beg|bag)s?|begs?)\b/i.test(lower);
   const isElastic = /\b(elastics?)\b/i.test(lower);
   const isStopper = /\b(stoppers?)\b/i.test(lower);
   const isSpray = /\b(spray|sprays)\b/i.test(lower);
@@ -520,10 +523,14 @@ export async function searchAccessoryMaterialsSmart(queryStr, options = {}) {
     'hai', 'h', 'hain', 'tha', 'the', 'thi', 'hua', 'hue', 'hui', 'hoga', 'hoge', 'hogi',
     'with', 'photo', 'photos', 'image', 'images', 'pic', 'pics', 'picture', 'tasveer', 'tasvir',
     'dikhao', 'dikhana', 'batao', 'btana', 'btao', 'bataiye', 'show', 'tell', 'available', 'check', 'karo', 'krdo', 'kariye', 'dekho', 'dekhna', 'bhejo',
-    'please', 'plz', 'total', 'all', 'sab', 'sabhi', 'sbhi', 'pura', 'pure', 'puri', 'detail', 'details', 'stock', 'inventory', 
+    'please', 'plz', 'total', 'all', 'sab', 'sabhi', 'sbhi', 'sb',
+    'sara', 'saara', 'sare', 'saare', 'sari', 'saari', 'sarra', 'sarre', 'sarri',
+    'pura', 'pure', 'puri', 'poora', 'poore', 'poori',
+    'tamam', 'har', 'harek', 'kul', 'kull', 'complete', 'entire', 'full', 'whole',
+    'detail', 'details', 'stock', 'inventory', 
     'godown', 'rack', 'location', 'maal', 'saman', 'kya', 'kaha', 'kahan', 'kuch', 'koi', 'bhi', 'sirf',
     'tag', 'tags', 'label', 'labels', 'patch', 'patches', 'button', 'buttons',
-    'tape', 'tapes', 'dori', 'doori', 'bone', 'polybeg', 'polybag', 'beg', 'elastic', 'stopper', 'spray', 'trims', 'accessory', 'accessories',
+    'tape', 'tapes', 'dori', 'doori', 'bone', 'polybeg', 'polybag', 'polbeg', 'beg', 'lifafa', 'lifafe', 'elastic', 'stopper', 'spray', 'trims', 'accessory', 'accessories',
     'store', 'warehouse', 'factory', 'floor', 'room', 'karkhana', 'karkhane', 'konsa', 'konse', 'konsi', 'abhi', 'abtak', 'abhitak', 'aaj', 'kal', 'parso',
     'uncut', 'un-cut', 'cut', 'cutting', 'lots', 'lot', 'order', 'orders', 'pending', 'party', 'buyer', 'bina', 'kate', 'kahan', 'tak', 'pahuncha', 'pahucha'
   ]);
@@ -531,6 +538,7 @@ export async function searchAccessoryMaterialsSmart(queryStr, options = {}) {
   const partyAcronyms = new Set(['ss', 'db', 'bb', 'mh']);
   const brandTokens = lower.replace(/[^a-z0-9\s_-]/g, ' ').split(/\s+/).filter(t => {
     if (t.length < 2 || stopWords.has(t)) return false;
+    if (/^\d+(\.\d+)?$/.test(t)) return false;
     if (partyAcronyms.has(t) && !hasCategory) return false;
     return true;
   });
@@ -551,6 +559,19 @@ export async function searchAccessoryMaterialsSmart(queryStr, options = {}) {
     if (isTag || isLabel || isPatch || isButton || isTape || isDori || isBone || isPolybag || isElastic || isStopper || isSpray || isRivet || isPasting || isInner || isCuff || isEyelet || isFashionPatti || isWashal) {
       let catClauses = [];
       let catParams = [];
+
+      // Detect polybag size if applicable (e.g. "16/26", "12/16", "12.5/17", "14x20", "22/36")
+      const polySizeMatch = isPolybag ? lower.match(/\b(\d{1,2}(?:\.\d+)?)\s*(?:\/|\s*x\s*|-|\s+)\s*(\d{1,2}(?:\.\d+)?)\b/) : null;
+      let polySizeClauses = [];
+      let polySizeParams = [];
+      if (polySizeMatch) {
+        const s1 = `${polySizeMatch[1]}/${polySizeMatch[2]}`;
+        const s2 = `${polySizeMatch[1]} / ${polySizeMatch[2]}`;
+        const s3 = `${polySizeMatch[1]}x${polySizeMatch[2]}`;
+        const s4 = `${polySizeMatch[1]} x ${polySizeMatch[2]}`;
+        polySizeClauses.push('(LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ?)');
+        polySizeParams.push(`%${s1}%`, `%${s2}%`, `%${s3}%`, `%${s4}%`);
+      }
 
       if (isTag) {
         catClauses.push('LOWER(category) IN (?, ?)');
@@ -574,8 +595,16 @@ export async function searchAccessoryMaterialsSmart(queryStr, options = {}) {
         catClauses.push('LOWER(category) LIKE ?');
         catParams.push('%bone%');
       } else if (isPolybag) {
-        catClauses.push('(LOWER(category) LIKE ? OR LOWER(category) LIKE ? OR LOWER(category) LIKE ?)');
-        catParams.push('%polybeg%', '%polybag%', '%beg%');
+        let pSql = `(
+          (LOWER(category) LIKE ? OR LOWER(category) LIKE ? OR LOWER(category) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ?)
+          AND LOWER(name) NOT LIKE '%polyster%'
+        )`;
+        catParams.push('%polybeg%', '%polybag%', '%beg%', '%poly%', '%polbeg%');
+        if (polySizeClauses.length > 0) {
+          pSql += ` AND ${polySizeClauses.join(' AND ')}`;
+          catParams.push(...polySizeParams);
+        }
+        catClauses.push(pSql);
       } else if (isElastic) {
         catClauses.push('LOWER(category) LIKE ?');
         catParams.push('%elastic%');
@@ -1074,7 +1103,8 @@ export function formatMaterialDetailCardToMarkdown(items, searchTerm = '', userA
   }
 
   // Summary solution sentence
-  md += `💡 **Quick Summary:** Aapke paas total **${Number(totalStockSum).toLocaleString()} units** available hain. Sabhi verified photos niche photo gallery me available hain.\n`;
+  const photoNote = itemsWithImages.length > 0 ? ' Sabhi verified photos niche photo gallery me available hain.' : '';
+  md += `💡 **Quick Summary:** Aapke paas total **${Number(totalStockSum).toLocaleString()} units** available hain.${photoNote}\n`;
 
   return md;
 }

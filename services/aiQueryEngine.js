@@ -846,12 +846,13 @@ export async function generateAiResponseWithGemini({
 CRITICAL FORMATTING GUIDELINES (FOR RESPONSIVE WEB & MOBILE):
 1. Clean Markdown Bolding:
    - NEVER place spaces before colons inside bold markdown tags: ALWAYS write "**Key:** Value", NEVER "**Key: ** Value".
-2. Statistical Breakdown Summaries:
-   - Always format high-level status counts as clean bullet points:
+2. Statistical Breakdown Summaries (FOR GARMENT PRODUCTION & CUTTING ORDERS ONLY):
+   - When and only when summarizing garment production lots or cutting orders, format high-level status counts as clean bullet points:
      • **Total Master Orders:** [Count] Lots
      • **Cut Complete:** [Count] Lots (Factory floor confirmed)
      • **Cancelled Orders:** [Count] Lots (Brief reason)
      • **Cutting Pending (Uncut):** [Count] Lots (Awaiting cutting floor allocation)
+   - NEVER output garment lot counts, Master Orders, or Cut Complete when answering trims, accessory, materials, godown racks, or general stock inquiries!
 3. Multiple Lot Specifications / Inventory Records:
    - Present each item on its own numbered line with pipe-separated attributes:
      1. Lot [Number]: [Job Order] | [Garment & Style] | Fabric: [Fabric Spec] | Qty: [Quantity] | Emb: [Embroidery/NA]
@@ -2767,6 +2768,9 @@ Directives:
         const isTagCat = /\b(tags?)\b/i.test(lower);
         const isButtonCat = /\b(buttons?)\b/i.test(lower);
         const isPatchCat = /\b(patch(?:es)?)\b/i.test(lower);
+        const isPolybagCat = /\b(poly\s*begs?|poly\s*bags?|polybegs?|polybags?|polbegs?|polbags?|lifaf(?:a|e|aa)?|packing\s*(?:beg|bag)s?|begs?)\b/i.test(lower);
+        const polySizeMatch = isPolybagCat ? lower.match(/\b(\d{1,2}(?:\.\d+)?)\s*(?:\/|\s*x\s*|-|\s+)\s*(\d{1,2}(?:\.\d+)?)\b/) : null;
+        const polyTitle = polySizeMatch ? `POLYBEG ${polySizeMatch[1]}/${polySizeMatch[2]}` : 'POLYBEG';
 
         let detectedBrand = null;
         if (/addidas|adidas/i.test(lower) || materials.every(m => /addidas|adidas/i.test(m.name || m.brand))) detectedBrand = 'ADIDAS';
@@ -2774,14 +2778,14 @@ Directives:
         else if (/amiri/i.test(lower) || materials.every(m => /amiri/i.test(m.name || m.brand))) detectedBrand = 'AMIRI';
         else if (/trapstar|trapster/i.test(lower) || materials.every(m => /trapstar|trapster/i.test(m.name || m.brand))) detectedBrand = 'TRAPSTAR';
         else if (/burberry|burburry/i.test(lower) || materials.every(m => /burberry|burburry/i.test(m.name || m.brand))) detectedBrand = 'BURBERRY';
-        else if (/zara/i.test(lower) || materials.every(m => /zara/i.test(m.name || m.brand))) detectedBrand = 'ZARA';
-        else if (/nike/i.test(lower) || materials.every(m => /nike/i.test(m.name || m.brand))) detectedBrand = 'NIKE';
+        else if (/zara/i.test(lower) || (materials.length > 0 && materials.length <= 3 && materials.every(m => /zara/i.test(m.name || m.brand)))) detectedBrand = 'ZARA';
+        else if (/nike/i.test(lower) || (materials.length > 0 && materials.length <= 3 && materials.every(m => /nike/i.test(m.name || m.brand)))) detectedBrand = 'NIKE';
         else if (/tommy/i.test(lower) || materials.every(m => /tommy/i.test(m.name || m.brand))) detectedBrand = 'TOMMY';
         else if (/bonkers/i.test(lower) || materials.every(m => /bonkers/i.test(m.name || m.brand))) detectedBrand = 'BONKERS';
         else if (/stussy/i.test(lower) || materials.every(m => /stussy/i.test(m.name || m.brand))) detectedBrand = 'STUSSY';
         else if (/diesel/i.test(lower) || materials.every(m => /diesel/i.test(m.name || m.brand))) detectedBrand = 'DIESEL';
 
-        let catPrefix = isLabelCat ? 'LABELS' : (isTagCat ? 'TAGS' : (isButtonCat ? 'BUTTONS' : (isPatchCat ? 'PATCHES' : '')));
+        let catPrefix = isLabelCat ? 'LABELS' : (isTagCat ? 'TAGS' : (isButtonCat ? 'BUTTONS' : (isPatchCat ? 'PATCHES' : (isPolybagCat ? polyTitle : ''))));
         let cleanTitle = detectedBrand ? (catPrefix ? `${detectedBrand} ${catPrefix}` : detectedBrand) : (catPrefix || materials[0]?.category || materials[0]?.brand || materials[0]?.name || p);
 
         md = formatMaterialDetailCardToMarkdown(materials, cleanTitle, userAskedPhoto);
@@ -2803,6 +2807,10 @@ Directives:
 
       const isLabelQuery = /\b(labels?)\b/i.test(lower);
       const isTagQuery = /\b(tags?)\b/i.test(lower);
+      const isPolybagQuery = /\b(poly\s*begs?|poly\s*bags?|polybegs?|polybags?|polbegs?|polbags?|lifaf(?:a|e|aa)?|packing\s*(?:beg|bag)s?|begs?)\b/i.test(lower);
+      const polySizeMatchPrompt = isPolybagQuery ? lower.match(/\b(\d{1,2}(?:\.\d+)?)\s*(?:\/|\s*x\s*|-|\s+)\s*(\d{1,2}(?:\.\d+)?)\b/) : null;
+      const polyTitlePrompt = polySizeMatchPrompt ? `POLYBEG ${polySizeMatchPrompt[1]}/${polySizeMatchPrompt[2]}` : 'POLYBEG';
+
       let detectedBrandForPrompt = null;
       if (/addidas|adidas/i.test(lower) || materials.every(m => /addidas|adidas/i.test(m.name || m.brand))) detectedBrandForPrompt = 'ADIDAS';
       else if (/channal|chanel/i.test(lower) || materials.every(m => /channal|chanel/i.test(m.name || m.brand))) detectedBrandForPrompt = 'CHANEL';
@@ -2811,14 +2819,16 @@ Directives:
       else if (/burberry|burburry/i.test(lower) || materials.every(m => /burberry|burburry/i.test(m.name || m.brand))) detectedBrandForPrompt = 'BURBERRY';
 
       const promptTargetName = detectedBrandForPrompt
-        ? (isLabelQuery ? `${detectedBrandForPrompt} LABELS` : isTagQuery ? `${detectedBrandForPrompt} TAGS` : `${detectedBrandForPrompt} items`)
-        : (isLabelQuery ? 'LABELS' : isTagQuery ? 'TAGS' : 'the requested trims/materials');
+        ? (isLabelQuery ? `${detectedBrandForPrompt} LABELS` : isTagQuery ? `${detectedBrandForPrompt} TAGS` : isPolybagQuery ? `${detectedBrandForPrompt} ${polyTitlePrompt}` : `${detectedBrandForPrompt} items`)
+        : (isPolybagQuery ? polyTitlePrompt : isLabelQuery ? 'LABELS' : isTagQuery ? 'TAGS' : 'the requested trims/materials');
 
       const sysPrompt = `You are PulseBot AI, the dedicated accessory & trims inventory copilot for Factory Suite Pro.
 The user asked: "${p}".
 CRITICAL HINGLISH PARSING DIRECTIVE:
+- Words like "sara", "saara", "sare", "saare", "sari", "saari", "sab", "sabhi", "pura", "pure", "poora", "poore", "tamam" mean "ALL / ENTIRE / COMPLETE" in Hindi/Hinglish.
+  NEVER treat "Sara", "Saare", "Sabhi", or "Pura" as a brand name! (e.g. "sara polybeg" means "all polybags / entire polybag stock", NOT "Sara brand").
 - Colloquial phrases like "mra pass", "mera pass", "mere paas", "humare paas", "kitna stock pda hai" mean "in factory stock / with us". NEVER echo or hallucinate "MRA PASS LABEL" or treat "MRA PASS" as a brand or material name!
-- Directly address the requested category / brand: ${promptTargetName}. Say naturally: "Aapke paas ${promptTargetName} ka current verified stock niche table aur photo gallery mein diya gaya hai:"
+- Directly address the requested category / brand: ${promptTargetName}. Say naturally: "Aapke paas ${promptTargetName} ka current verified stock niche table${itemsWithImg.length > 0 ? ' aur photo gallery' : ''} mein diya gaya hai:"
 - BRAND SPELLING VARIATIONS & NORMALIZATION:
   Database records may use operator or phonetic spelling variations (e.g. recorded as "addidas" for Adidas, "channal" for Chanel, "trapster" for Trapstar).
   These items are verified genuine matches for the user's inquiry! Always address them authoritatively and cleanly under the user's requested brand name (e.g. "Adidas", "Chanel").
@@ -2828,7 +2838,7 @@ VERIFIED ACCESSORY SQL DATA SUMMARY (DATABASE: railway.materials):
 • Total Registered Items: ${materials.length} items
 • ${contextDescription}
 • Total Packets: ${Number(totalPacketsSum).toLocaleString()} Packets
-• Verified Cloudinary Photos: ${itemsWithImg.length} photos loaded in the interactive gallery below
+• Verified Cloudinary Photos: ${itemsWithImg.length > 0 ? `${itemsWithImg.length} photos loaded in the interactive gallery below` : 'No photos uploaded yet for this item'}
 
 ${isLowStock ? `CRITICAL LOW STOCK DIRECTIVE:
 - Clearly explain that these are the ${materials.length} LOW STOCK / SHORTAGE items that have dropped below safety thresholds and require re-ordering.
@@ -2837,18 +2847,19 @@ rackMatch ? `RACK LOCATION DIRECTIVE:
 - Directly answer about RACK ${rackMatch[1].toUpperCase()}. State that Rack ${rackMatch[1].toUpperCase()} currently holds ${materials.length} items totaling ${Number(totalStockSum).toLocaleString()} units.
 - DO NOT say 'before telling you about Rack ${rackMatch[1]}, here is warehouse overview'. Answer directly about the rack.` :
 isBroadCategory ? `CRITICAL DIRECTIVE FOR COMPLETE INVENTORY LIST:
-- Greet warmly and state the Grand Total Stock (${Number(totalStockSum).toLocaleString()} units across ${materials.length} items and ${Number(totalPacketsSum).toLocaleString()} packets) prominently.
-- Note that the complete verified inventory table of all ${materials.length} items with serial numbers, item names, and current stock is displayed below.
-- Note that all ${itemsWithImg.length} verified item photos are loaded in the interactive gallery below.
-- DO NOT attempt to write 65 bullet points one by one in text (the complete table is appended automatically).` : `ITEMS:
+- Greet warmly and state the Grand Total Stock (${Number(totalStockSum).toLocaleString()} units across ${materials.length} items and ${Number(totalPacketsSum).toLocaleString()} packets) prominently in 2 brief sentences.
+- State: "Niche verified inventory table mein sabhi ${materials.length} items ka stock check karein."
+${itemsWithImg.length > 0 ? `- Note that all ${itemsWithImg.length} verified item photos are loaded in the interactive gallery below.` : ''}
+- ABSOLUTELY DO NOT write, list, or invent any item names, rows, bullets, or tables in your text. The complete verified database table is attached automatically below.` : `ITEMS:
 ${materials.map(m => `• Item: ${m.name} | Category: ${m.category} | Stock: ${Number(m.stock).toLocaleString()} ${m.unit || 'Pcs'} (${m.packets || 1} Pkts) | Location: ${m.location}`).join('\n')}`}
 
 STRICT DIRECTIVES:
 1. ${isLowStock ? `Prominently state the LOW STOCK warning and that ${materials.length} items require urgent re-ordering.` : rackMatch ? `Directly address the items in Rack ${rackMatch[1].toUpperCase()}.` : `MANDATORY: Prominently state the GRAND TOTAL STOCK (${Number(totalStockSum).toLocaleString()} units across ${materials.length} items and ${Number(totalPacketsSum).toLocaleString()} packets) in the opening lines.`}
-2. DO NOT mention or include ANY garment cutting lots, job orders, master orders, or garment manufacturing data under ANY circumstance.
-3. NEVER print raw URLs or Cloudinary links in your text response.
-4. Keep the response crisp, accurate, helpful, and professional.
-5. ${isPdfRequested ? 'User asked for PDF. Acknowledge that the official Accessory & Trims Stock Report with Photos PDF is generated and attached below.' : 'User did NOT ask for PDF. Do not mention downloading PDF.'}`;
+2. DO NOT mention or include ANY garment cutting lots, job orders, master orders, or garment manufacturing data under ANY circumstance. NEVER output any "Summary Breakdown" section with "Total Master Orders" or "Cut Complete".
+3. NEVER invent, fabricate, or hallucinate imaginary item names, sizes, or sub-tables (like 'Sara Polybeg - Small'). The full verified database table is attached automatically below.
+4. NEVER print raw URLs or Cloudinary links in your text response.
+5. Keep the response crisp, accurate, helpful, and professional.
+6. ${isPdfRequested ? 'User asked for PDF. Acknowledge that the official Accessory & Trims Stock Report with Photos PDF is generated and attached below.' : 'User did NOT ask for PDF. Do not mention downloading PDF.'}`;
 
       let aiAnswer = await generateAiResponseWithGemini({
         prompt: p,
@@ -2860,6 +2871,12 @@ STRICT DIRECTIVES:
       // 1. Strip any unintentional garment production lot mentions or footnotes
       if (aiAnswer) {
         aiAnswer = aiAnswer.replace(/\n+\*?\*?(?:Important Note|Important Production Context|Production Context|Related Garment Manufacturing|Garment Production).*?(?:job orders|production lots|cut orders).*$/si, '');
+        // Strip any hallucinated Summary Breakdown containing lots / cut complete
+        aiAnswer = aiAnswer.replace(/\*?\*?Summary Breakdown:?\*?\*?[\s\S]*?(?:Master Orders|Cut Complete|Cutting Pending|Cancelled Orders)[\s\S]*?(?=\n\n(?:[A-Z]|\*)|$)/gi, '');
+        aiAnswer = aiAnswer.replace(/(?:^|\n)\s*[*•-]?\s*\**Total Master Orders:\**.*$/gmi, '');
+        aiAnswer = aiAnswer.replace(/(?:^|\n)\s*[*•-]?\s*\**Cut Complete:\**.*$/gmi, '');
+        aiAnswer = aiAnswer.replace(/(?:^|\n)\s*[*•-]?\s*\**Cancelled Orders:\**.*$/gmi, '');
+        aiAnswer = aiAnswer.replace(/(?:^|\n)\s*[*•-]?\s*\**Cutting Pending(?:\s*\(Uncut\))?:\**.*$/gmi, '');
         // 2. Clean up any empty photo bullets Gemini might have rendered like "**Photo:** **" or "**Photo:**"
         aiAnswer = aiAnswer.replace(/\*\*Photo:\*\*\s*(?:\*\*)?/gi, '');
         // 3. Remove any broken or multiline markdown images like "• ![AMIRI]\n(https://...)"
@@ -2877,6 +2894,8 @@ STRICT DIRECTIVES:
       if (md) {
         if (aiAnswer) {
           // Strip any partial tables or numbered item lists Gemini might have hallucinated/truncated
+          aiAnswer = aiAnswer.replace(/###\s*Verified Inventory Records:?[\s\S]*?(?=\n\n(?:[A-Z]|\*|###|\()|$)/gi, '').trim();
+          aiAnswer = aiAnswer.replace(/(?:^|\n)\s*Item Name\b[\s\S]*?(?=\n\n(?:[A-Z]|\*|###|\()|$)/gi, '').trim();
           aiAnswer = aiAnswer.replace(/\|[\s\S]*?\|/g, '').trim();
           aiAnswer = aiAnswer.replace(/(?:^|\n)\d+\.\s*Item:[\s\S]*?(?=\n\n|$)/gi, '').trim();
           aiAnswer = aiAnswer.replace(/\n{3,}/g, '\n\n').trim();
