@@ -2469,7 +2469,7 @@ DIRECTIVES:
 2. Note that the verified issuance audit table from the live \`issue_logs\` table is provided below.
 3. NEVER print raw Cloudinary URLs in text response.
 4. Keep the response crisp, accurate, helpful, and professional.
-5. User did NOT ask for PDF. Do not mention PDF.`;
+5. ${isPdfRequested ? 'User asked for PDF. Acknowledge that the official Accessory & Trims Stock Report with Photos PDF is generated and attached below.' : 'User did NOT ask for PDF. Do not mention downloading PDF.'}`;
 
       let aiAnswer = await generateAiResponseWithGemini({
         prompt: p,
@@ -2492,7 +2492,15 @@ DIRECTIVES:
         handled: true,
         answer: aiAnswer,
         ...(imageAttachment ? { imageAttachment } : {}),
-        ...(imageGallery ? { imageGallery } : {})
+        ...(imageGallery ? { imageGallery } : {}),
+        ...(isPdfRequested ? {
+          pdfAttachment: {
+            type: 'accessory-stock',
+            downloadUrl: `http://localhost:5000/api/chat/pdf/accessory-stock`,
+            filename: `Accessory_Stock_Report_With_Photos.pdf`,
+            title: `Accessory & Trims Stock Inventory (With Photos)`
+          }
+        } : {})
       };
     }
 
@@ -2736,9 +2744,15 @@ Directives:
           // Pass ALL items with photos to gallery (up to 100 items!)
           imageGallery = itemsWithImg.slice(0, 100).map(m => ({
             url: m.imageUrl,
+            imageUrl: m.imageUrl,
             title: `${m.name} (${m.category || 'Accessory'})`,
+            name: m.name,
             category: m.category || 'Accessory',
             garment: m.category || 'Accessory',
+            stock: m.stock,
+            unit: m.unit || 'Pcs',
+            packets: m.packets,
+            location: m.location || 'Godown',
             caption: `Stock: ${Number(m.stock || 0).toLocaleString()} ${m.unit || 'Pcs'} | Location: ${m.location || 'Godown'}`
           }));
         }
@@ -2808,7 +2822,7 @@ STRICT DIRECTIVES:
 2. DO NOT mention or include ANY garment cutting lots, job orders, master orders, or garment manufacturing data under ANY circumstance.
 3. NEVER print raw URLs or Cloudinary links in your text response.
 4. Keep the response crisp, accurate, helpful, and professional.
-5. User did NOT ask for PDF. Do not mention PDF.`;
+5. ${isPdfRequested ? 'User asked for PDF. Acknowledge that the official Accessory & Trims Stock Report with Photos PDF is generated and attached below.' : 'User did NOT ask for PDF. Do not mention downloading PDF.'}`;
 
       let aiAnswer = await generateAiResponseWithGemini({
         prompt: p,
@@ -2850,7 +2864,15 @@ STRICT DIRECTIVES:
         handled: true,
         answer: aiAnswer,
         ...(imageAttachment ? { imageAttachment } : {}),
-        ...(imageGallery ? { imageGallery } : {})
+        ...(imageGallery ? { imageGallery } : {}),
+        ...(isPdfRequested ? {
+          pdfAttachment: {
+            type: 'accessory-stock',
+            downloadUrl: `http://localhost:5000/api/chat/pdf/accessory-stock`,
+            filename: `Accessory_Stock_Report_With_Photos.pdf`,
+            title: `Accessory & Trims Stock Inventory (With Photos)`
+          }
+        } : {})
       };
     }
 

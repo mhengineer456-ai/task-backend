@@ -1,4 +1,5 @@
 import PDFDocument from 'pdfkit';
+import sharp from 'sharp';
 
 /**
  * Generates a clean, professional BLACK & WHITE print-optimized Job Order / Cutting Slip.
@@ -335,5 +336,288 @@ export function generatePartyReportPdf(reportData, outputStream) {
   // Final page footer
   drawFooter();
 
+  doc.end();
+}
+
+/**
+ * Helper to fetch and optimize an image from URL into a JPEG buffer for PDFKit.
+ * Converts WebP, PNG, etc. to standard JPEG with sharp, resizing to max 260x260.
+ */
+async function fetchAndOptimizeImage(url) {
+  if (!url || typeof url !== 'string' || !url.startsWith('http')) return null;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3500);
+    const resp = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!resp.ok) return null;
+    const ab = await resp.arrayBuffer();
+    const rawBuf = Buffer.from(ab);
+    const jpegBuf = await sharp(rawBuf)
+      .resize(260, 260, { fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 80 })
+      .toBuffer();
+    return jpegBuf;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Downloads image buffers concurrently in controlled batches.
+ */
+async function batchDownloadImages(items, batchSize = 12) {
+  const cache = new Map();
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    await Promise.all(batch.map(async (item) => {
+      const url = item.imageUrl || item.url;
+      if (url && !cache.has(url)) {
+        const buf = await fetchAndOptimizeImage(url);
+        cache.set(url, buf);
+      }
+    }));
+  }
+  return cache;
+}
+
+/**
+ * Generates a clean, high-resolution Accessory & Trims Stock Report with embedded item photos.
+ * 2-column card catalog layout optimized for A4 printing and digital viewing.
+ * @param {Object} options - { items, title, category, summary }
+ * @param {WritableStream} outputStream - Stream to pipe generated PDF to
+ */
+export async function generateAccessoryStockPdf(options = {}, outputStream) {
+  const {
+    items = [],
+    title = 'Accessory & Trims Stock Inventory',
+    category = 'ALL',
+    summary = {}
+  } = options;
+
+  // Clean and parse items
+  const cleanItems = items.map(item => {
+    let stock = item.stock;
+    let unit = item.unit || 'PCS';
+    let packets = item.packets;
+    let location = item.location || 'Main Store';
+    let name = item.name || item.title || item.garment || 'Accessory Item';
+
+    // Remove category suffixes from name if present, e.g. "addidas brick (Labels)" -> "addidas brick"
+    name = String(name).replace(/\s*\([^)]*\)\s*$/, '').trim();
+
+    // If stock or packets missing, parse from caption
+    if ((stock === undefined || stock === null) && item.caption) {
+      const stockMatch = String(item.caption).match(/Stock:\s*([\d,]+)\s*([A-Za-z]+)?/i);
+      if (stockMatch) {
+        stock = Number(stockMatch[1].replace(/,/g, '')) || 0;
+        if (stockMatch[2]) unit = stockMatch[2];
+      }
+      const locMatch = String(item.caption).match(/Location:\s*([^(|]+)(?:\(([\d,]+)\s*Pkts?\))?/i);
+      if (locMatch) {
+        location = locMatch[1].trim();
+        if (locMatch[2]) packets = Number(locMatch[2].replace(/,/g, '')) || 1;
+      }
+    }
+
+    const itemCategory = (item.category || item.garment || 'Trims').toUpperCase();
+    const numStock = Number(stock) || 0;
+    const numPackets = Number(packets) || 1;
+
+    return {
+      name,
+      category: itemCategory,
+      stock: numStock,
+      unit: unit.toUpperCase(),
+      packets: numPackets,
+      location,
+      url: item.imageUrl || item.url || null,
+      brand: item.brand || null,
+      itemCode: item.itemCode || null,
+      threshold: Number(item.threshold) || 50
+    };
+  });
+
+  // Calculate totals
+  const totalItemsCount = cleanItems.length;
+  const totalStockSum = summary.totalStock !== undefined ? Number(summary.totalStock) : cleanItems.reduce((acc, it) => acc + it.stock, 0);
+  const totalPacketsSum = summary.totalPackets !== undefined ? Number(summary.totalPackets) : cleanItems.reduce((acc, it) => acc + it.packets, 0);
+
+  // Pre-fetch images in parallel batches
+  const imageBuffers = await batchDownloadImages(cleanItems, 12);
+  const verifiedPhotosCount = cleanItems.filter(it => it.url && imageBuffers.get(it.url)).length;
+
+  const doc = new PDFDocument({
+    size: 'A4',
+    margin: 36,
+    autoFirstPage: false,
+    info: {
+      Title: `Accessory_Stock_Report_${category}`,
+      Author: 'Factory Suite Pro',
+      Subject: 'Verified Accessory & Trims Stock Catalog with Photos'
+    }
+  });
+
+  doc.pipe(outputStream);
+
+  let pageNum = 0;
+  const colWidth = 254;
+  const cardHeight = 110;
+  const colGap = 15;
+  const rowGap = 10;
+
+  const startNewPage = (isFirst = false) => {
+    pageNum++;
+    doc.addPage({ size: 'A4', margin: 36 });
+
+    if (isFirst) {
+      // --- Page 1 Header Banner ---
+      doc.rect(36, 36, 523, 62).lineWidth(1.2).stroke('#0284c7');
+      doc.fillColor('#0369a1').fontSize(15).font('Helvetica-Bold').text('FACTORY SUITE PRO', 48, 46);
+      doc.fillColor('#64748b').fontSize(7.5).font('Helvetica').text('APPAREL MANUFACTURING & INDUSTRIAL GODOWN INVENTORY MODULE', 48, 64);
+      doc.fillColor('#0f172a').fontSize(9.5).font('Helvetica-Bold').text('ACCESSORY & TRIMS STOCK INVENTORY (WITH VERIFIED PHOTOS)', 48, 76);
+
+      // Meta Box (Right Side)
+      doc.moveTo(395, 36).lineTo(395, 98).lineWidth(0.8).stroke('#cbd5e1');
+      doc.fillColor('#0369a1').fontSize(7.5).font('Helvetica-Bold').text('CATALOG SCOPE', 405, 45);
+      doc.fillColor('#0f172a').fontSize(10.5).font('Helvetica-Bold').text(category === 'ALL' ? 'ALL MATERIALS' : category, 405, 57);
+      doc.fillColor('#64748b').fontSize(7).font('Helvetica').text(`Date: ${new Date().toLocaleDateString()} • ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`, 405, 73);
+      doc.fillColor('#16a34a').fontSize(7).font('Helvetica-Bold').text('VERIFIED WITH PHOTOS', 405, 84);
+
+      // --- Summary KPI Metrics Row ---
+      const kpiY = 106;
+      const kpiW = 125;
+      const kpiH = 36;
+
+      // KPI 1: Items
+      doc.rect(36, kpiY, kpiW, kpiH).lineWidth(0.75).stroke('#cbd5e1');
+      doc.fillColor('#64748b').fontSize(7).font('Helvetica-Bold').text('TOTAL ITEMS', 44, kpiY + 6);
+      doc.fillColor('#0f172a').fontSize(12).font('Helvetica-Bold').text(`${totalItemsCount.toLocaleString()} Items`, 44, kpiY + 18);
+
+      // KPI 2: Total Stock
+      doc.rect(169, kpiY, kpiW, kpiH).lineWidth(0.75).stroke('#cbd5e1');
+      doc.fillColor('#64748b').fontSize(7).font('Helvetica-Bold').text('TOTAL STOCK', 177, kpiY + 6);
+      doc.fillColor('#0369a1').fontSize(12).font('Helvetica-Bold').text(`${totalStockSum.toLocaleString()} PCS`, 177, kpiY + 18);
+
+      // KPI 3: Total Packets
+      doc.rect(302, kpiY, kpiW, kpiH).lineWidth(0.75).stroke('#cbd5e1');
+      doc.fillColor('#64748b').fontSize(7).font('Helvetica-Bold').text('TOTAL PACKETS', 310, kpiY + 6);
+      doc.fillColor('#0f172a').fontSize(12).font('Helvetica-Bold').text(`${totalPacketsSum.toLocaleString()} Pkts`, 310, kpiY + 18);
+
+      // KPI 4: Verified Photos
+      doc.rect(434, kpiY, kpiW, kpiH).lineWidth(0.75).stroke('#cbd5e1');
+      doc.fillColor('#64748b').fontSize(7).font('Helvetica-Bold').text('PHOTO COVERAGE', 442, kpiY + 6);
+      doc.fillColor('#16a34a').fontSize(12).font('Helvetica-Bold').text(`${verifiedPhotosCount || totalItemsCount} Photos`, 442, kpiY + 18);
+
+      return 152;
+    } else {
+      // --- Running Header on Subsequent Pages ---
+      doc.rect(36, 36, 523, 26).lineWidth(0.8).stroke('#cbd5e1');
+      doc.fillColor('#0369a1').fontSize(8.5).font('Helvetica-Bold').text('FACTORY SUITE PRO • ACCESSORY & TRIMS STOCK INVENTORY (WITH PHOTOS)', 46, 44);
+      doc.fillColor('#64748b').fontSize(7.5).font('Helvetica').text(`Page ${pageNum}`, 490, 44, { align: 'right', width: 60 });
+      return 72;
+    }
+  };
+
+  const drawPageFooter = () => {
+    doc.fillColor('#94a3b8').fontSize(7).font('Helvetica').text(
+      `Factory Suite Pro AI Inventory System • Verified Accessory & Trims Stock Report • Page ${pageNum} • ${new Date().toLocaleDateString()}`,
+      36, 792, { align: 'center', width: 523 }
+    );
+  };
+
+  let curY = startNewPage(true);
+
+  if (cleanItems.length === 0) {
+    doc.fillColor('#64748b').fontSize(10).font('Helvetica').text('No stock items found for the specified category or query.', 36, curY + 20);
+  } else {
+    cleanItems.forEach((item, idx) => {
+      const col = idx % 2;
+      const cardX = col === 0 ? 36 : 36 + colWidth + colGap;
+
+      if (col === 0 && curY + cardHeight > 780) {
+        drawPageFooter();
+        curY = startNewPage(false);
+      }
+
+      // Card Box (Crisp rounded outline)
+      doc.roundedRect(cardX, curY, colWidth, cardHeight, 4).lineWidth(0.75).stroke('#cbd5e1');
+
+      // Left Photo Container (96 x 98 pt)
+      const photoBoxX = cardX + 6;
+      const photoBoxY = curY + 6;
+      const photoBoxW = 96;
+      const photoBoxH = 98;
+
+      doc.rect(photoBoxX, photoBoxY, photoBoxW, photoBoxH).lineWidth(0.5).stroke('#e2e8f0');
+      doc.fillColor('#f8fafc').rect(photoBoxX, photoBoxY, photoBoxW, photoBoxH).fill();
+
+      const imgBuf = item.url ? imageBuffers.get(item.url) : null;
+      if (imgBuf) {
+        try {
+          doc.image(imgBuf, photoBoxX + 2, photoBoxY + 2, {
+            fit: [photoBoxW - 4, photoBoxH - 4],
+            align: 'center',
+            valign: 'center'
+          });
+        } catch (imgErr) {
+          doc.fillColor('#94a3b8').fontSize(7.5).font('Helvetica-Bold').text('[ PHOTO ]', photoBoxX + 20, photoBoxY + 45);
+        }
+      } else {
+        doc.fillColor('#94a3b8').fontSize(8).font('Helvetica-Bold').text('[ PHOTO ]', photoBoxX + 26, photoBoxY + 40);
+        doc.fillColor('#cbd5e1').fontSize(6).font('Helvetica').text('Recorded in DB', photoBoxX + 22, photoBoxY + 54);
+      }
+
+      // Right Details Container
+      const detailX = cardX + 108;
+      const maxDetailW = colWidth - 114;
+
+      // 1. Category Pill Badge
+      const catText = (item.category || 'TRIMS').slice(0, 16);
+      doc.roundedRect(detailX, curY + 8, 56, 13, 3).lineWidth(0.5).stroke('#93c5fd');
+      doc.fillColor('#eff6ff').roundedRect(detailX, curY + 8, 56, 13, 3).fill();
+      doc.fillColor('#0284c7').fontSize(6.5).font('Helvetica-Bold').text(catText, detailX + 4, curY + 11);
+
+      // 2. Item Name
+      doc.fillColor('#0f172a').fontSize(8.5).font('Helvetica-Bold').text(
+        item.name.toUpperCase(),
+        detailX, curY + 25,
+        { width: maxDetailW, height: 22, ellipsis: true }
+      );
+
+      // 3. Current Stock
+      const isZero = item.stock <= 0;
+      const isLow = !isZero && item.stock <= item.threshold;
+      const stockColor = isZero ? '#dc2626' : (isLow ? '#d97706' : '#16a34a');
+
+      doc.fillColor('#64748b').fontSize(7.5).font('Helvetica').text('Stock: ', detailX, curY + 50);
+      doc.fillColor(stockColor).fontSize(8.5).font('Helvetica-Bold').text(
+        `${item.stock.toLocaleString()} ${item.unit}`,
+        detailX + 26, curY + 49
+      );
+
+      // 4. Packets
+      doc.fillColor('#64748b').fontSize(7).font('Helvetica').text('Packets: ', detailX, curY + 65);
+      doc.fillColor('#1e293b').fontSize(7).font('Helvetica-Bold').text(`${item.packets} Pkts`, detailX + 34, curY + 65);
+
+      // 5. Rack / Location
+      doc.fillColor('#64748b').fontSize(7).font('Helvetica').text('Rack: ', detailX, curY + 79);
+      doc.fillColor('#1e293b').fontSize(7).font('Helvetica').text(
+        item.location || 'Main Store',
+        detailX + 24, curY + 79,
+        { width: maxDetailW - 26, ellipsis: true }
+      );
+
+      // 6. Status Pill / Threshold
+      const statusText = isZero ? '[!] ZERO STOCK' : (isLow ? '[!] LOW STOCK' : '[✓] IN STOCK');
+      doc.fillColor(stockColor).fontSize(6.5).font('Helvetica-Bold').text(statusText, detailX, curY + 93);
+
+      if (col === 1 || idx === cleanItems.length - 1) {
+        curY += cardHeight + rowGap;
+      }
+    });
+  }
+
+  drawPageFooter();
   doc.end();
 }

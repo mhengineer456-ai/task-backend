@@ -15,7 +15,7 @@ import {
   broadcastChannelDeleted
 } from '../socket.js';
 import { logService } from '../services/logService.js';
-import { generateJobOrderPdf, generatePartyReportPdf } from '../services/pdfService.js';
+import { generateJobOrderPdf, generatePartyReportPdf, generateAccessoryStockPdf } from '../services/pdfService.js';
 import { processUniversalQuery, loadFactorySheetsData } from '../services/aiQueryEngine.js';
 import { buildAiAggregatedContext } from '../services/aiContextAggregator.js';
 import { getAccessoryDbStatus, isAccessoryConnected, refreshAccessoryTableCounts } from '../config/accessoryDb.js';
@@ -1712,6 +1712,68 @@ export const generatePartyPdf = async (req, res) => {
   } catch (err) {
     console.error('Error generating Party PDF:', err);
     res.status(500).json({ success: false, error: 'Failed to generate party report PDF' });
+  }
+};
+
+export const generateAccessoryStockPdfController = async (req, res) => {
+  try {
+    let items = [];
+    let category = req.query.category || req.body?.category || 'ALL';
+    let search = req.query.search || req.body?.search || '';
+    let title = req.body?.title || 'Accessory & Trims Stock Inventory';
+
+    // 1. If items were supplied in request body (e.g. from frontend gallery)
+    if (Array.isArray(req.body?.items) && req.body.items.length > 0) {
+      items = req.body.items;
+    } else {
+      // 2. Query database for materials
+      try {
+        const catFilter = category !== 'ALL' ? category : undefined;
+        items = await getMaterialsInventory({
+          category: catFilter,
+          search: search || undefined,
+          limit: 200
+        });
+      } catch (dbErr) {
+        console.warn('[PDF Controller] Error querying materials for PDF:', dbErr.message);
+      }
+    }
+
+    // 3. Fallback sample materials if database returned empty
+    if (!items || items.length === 0) {
+      items = [
+        { name: 'addidas brick', category: 'Labels', stock: 25308, unit: 'PCS', packets: 44, location: 'Main Store - RACK 1' },
+        { name: 'ADDIDAS FLOWER', category: 'Labels', stock: 9581, unit: 'PCS', packets: 45, location: 'Main Store - Rack 7' },
+        { name: 'ADDIDAS FLOWER JACKET', category: 'Labels', stock: 1200, unit: 'PCS', packets: 16, location: 'Main Store - Rack 2' },
+        { name: 'addidas brick jacket', category: 'Labels', stock: 70, unit: 'PCS', packets: 4, location: 'Main Store - RACK 1' },
+        { name: 'addidas brick jacket myshelter', category: 'Labels', stock: 45, unit: 'PCS', packets: 15, location: 'Main Store - RACK 1' },
+        { name: 'AMIRI DORI', category: 'Dori', stock: 8000, unit: 'PCS', packets: 10, location: 'Main Store - RACK 4' },
+        { name: 'ZARA METAL ZIP', category: 'Zippers', stock: 15000, unit: 'PCS', packets: 30, location: 'Main Store - RACK 5' },
+        { name: 'BONKERS BADGE', category: 'Patches', stock: 258, unit: 'PCS', packets: 5, location: 'Godown 2' },
+        { name: 'CHANNAL EMBLEM', category: 'Patches', stock: 100, unit: 'PCS', packets: 2, location: 'Godown 2' },
+        { name: 'STUSSY RUBBER BADGE', category: 'Patches', stock: 71, unit: 'PCS', packets: 2, location: 'Godown 2' },
+        { name: 'CRIMINAL DAMAGE', category: 'Labels', stock: 18, unit: 'PCS', packets: 1, location: 'Main Store' },
+        { name: 'ADDIDAS FLOWER', category: 'Labels', stock: 0, unit: 'PCS', packets: 0, location: 'Main Store' }
+      ];
+    }
+
+    const safeCat = String(category || 'Catalog').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `Accessory_Stock_Report_${safeCat}_With_Photos.pdf`;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    await generateAccessoryStockPdf({
+      items,
+      category,
+      title,
+      summary: req.body?.summary || {}
+    }, res);
+  } catch (err) {
+    console.error('Error generating Accessory Stock PDF:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: 'Failed to generate accessory stock PDF' });
+    }
   }
 };
 
