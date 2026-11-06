@@ -273,6 +273,12 @@ export const getMessagesByChannel = async (req, res) => {
           } catch (e) { return null; }
         })(),
         reactions: typeof m.reactions === 'string' ? JSON.parse(m.reactions || '{}') : (m.reactions || {}),
+        delegatedTask: (() => {
+          try {
+            const parsed = typeof m.file_attachment === 'string' ? JSON.parse(m.file_attachment) : m.file_attachment;
+            return parsed?.delegatedTask || (parsed?.id && parsed?.assignee ? parsed : null);
+          } catch (e) { return null; }
+        })(),
         taskAttachment: (() => {
           if (!m.task_attachment) return null;
           if (typeof m.task_attachment === 'object') return m.task_attachment;
@@ -629,25 +635,50 @@ function detectScheduleInPrompt(rawText) {
   const text = (rawText || '').trim();
   if (!text) return { isScheduled: false, scheduledAt: null };
 
-  const hasScheduleKeyword = /\b(schedule|scheduled|scheduling|allot|allotted|allotment|trigger\s*at|dispatch\s*at|deliver\s*at)\b/i.test(text);
+  const hasScheduleKeyword = /\b(schedule|scheduled|scheduling|allot|allotted|allotment|trigger\s*at|dispatch\s*at|deliver\s*at|send\s*on|message\s*will\s*be\s*send)\b/i.test(text);
   const now = new Date();
   let targetDate = null;
 
-  // 1. Relative: in X mins / hours / days
-  const relMatch = text.match(/\bin\s+(\d+(?:\.\d+)?)\s*(mins?|minutes?|hrs?|hours?|days?)\b/i);
-  if (relMatch) {
-    const val = parseFloat(relMatch[1]);
-    const unit = relMatch[2].toLowerCase();
-    let ms = 0;
-    if (unit.startsWith('min')) ms = val * 60 * 1000;
-    else if (unit.startsWith('hr') || unit.startsWith('hour')) ms = val * 60 * 60 * 1000;
-    else if (unit.startsWith('day')) ms = val * 24 * 60 * 60 * 1000;
-    targetDate = new Date(now.getTime() + ms);
+  // 1. Full date + time: e.g. '6-11-2026 4:00pm clock', '06-11-2026 4:00pm', '6/11/2026 4pm', '2026-11-06 16:00'
+  const dtMatch = text.match(/\b(?:on\s+)?(\d{1,4})[-/.](\d{1,2})[-/.](\d{2,4})\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?:\s*clock)?\b/i);
+  if (dtMatch) {
+    let [_, p1, p2, p3, hStr, mStr, meridiem] = dtMatch;
+    let day, month, year;
+    if (p1.length === 4) {
+      year = parseInt(p1, 10);
+      month = parseInt(p2, 10) - 1;
+      day = parseInt(p3, 10);
+    } else {
+      day = parseInt(p1, 10);
+      month = parseInt(p2, 10) - 1;
+      year = parseInt(p3, 10);
+      if (year < 100) year += 2000;
+    }
+    let h = parseInt(hStr, 10);
+    const m = mStr ? parseInt(mStr, 10) : 0;
+    meridiem = (meridiem || '').toLowerCase();
+    if (meridiem === 'pm' && h < 12) h += 12;
+    if (meridiem === 'am' && h === 12) h = 0;
+    targetDate = new Date(year, month, day, h, m, 0);
   }
 
-  // 2. Tomorrow: tomorrow at 10 AM / tomorrow 4 PM / tomorrow morning / etc.
+  // 2. Relative: in X mins / hours / days
   if (!targetDate) {
-    const tomMatch = text.match(/\btomorrow(?:\s*(?:at|by))?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i);
+    const relMatch = text.match(/\bin\s+(\d+(?:\.\d+)?)\s*(mins?|minutes?|hrs?|hours?|days?)\b/i);
+    if (relMatch) {
+      const val = parseFloat(relMatch[1]);
+      const unit = relMatch[2].toLowerCase();
+      let ms = 0;
+      if (unit.startsWith('min')) ms = val * 60 * 1000;
+      else if (unit.startsWith('hr') || unit.startsWith('hour')) ms = val * 60 * 60 * 1000;
+      else if (unit.startsWith('day')) ms = val * 24 * 60 * 60 * 1000;
+      targetDate = new Date(now.getTime() + ms);
+    }
+  }
+
+  // 3. Tomorrow: tomorrow at 10 AM / tomorrow 4 PM / tomorrow morning / etc.
+  if (!targetDate) {
+    const tomMatch = text.match(/\btomorrow(?:\s*(?:at|by))?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?:\s*clock)?\b/i);
     if (tomMatch) {
       let h = parseInt(tomMatch[1], 10);
       const m = tomMatch[2] ? parseInt(tomMatch[2], 10) : 0;
@@ -669,9 +700,9 @@ function detectScheduleInPrompt(rawText) {
     }
   }
 
-  // 3. Time today or next occurrence: at 4 PM / at 10:30 am / today at 3 PM
+  // 4. Time today or next occurrence: at 4:00pm clock / at 4 PM / at 10:30 am
   if (!targetDate) {
-    const timeMatch = text.match(/\b(?:today\s*)?(?:at|by)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i);
+    const timeMatch = text.match(/\b(?:today\s*)?(?:at|by)?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)(?:\s*clock)?\b/i);
     if (timeMatch) {
       let h = parseInt(timeMatch[1], 10);
       const m = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
@@ -686,7 +717,7 @@ function detectScheduleInPrompt(rawText) {
     }
   }
 
-  // 4. Explicit date string match: 2026-11-07 10:00 or 2026-11-07T10:00
+  // 5. Explicit date string match: 2026-11-07 10:00 or 2026-11-07T10:00
   if (!targetDate) {
     const isoMatch = text.match(/\b(\d{4}-\d{2}-\d{2})[T\s](\d{1,2}:\d{2})\b/);
     if (isoMatch) {
@@ -697,7 +728,7 @@ function detectScheduleInPrompt(rawText) {
     }
   }
 
-  // 5. Keyword present without specific time (e.g. "schedule task for @Mohit to check lots")
+  // 6. Keyword present without specific time (e.g. "schedule task for @Mohit to check lots")
   if (!targetDate && hasScheduleKeyword) {
     targetDate = new Date(now.getTime() + 60 * 60 * 1000);
   }
@@ -714,25 +745,48 @@ function detectScheduleInPrompt(rawText) {
 /**
  * Helper: Cleans task title from mentions, scheduling directives, and prefixes
  */
-function cleanTaskTitle(rawMsg, cleanedMentionName) {
+function cleanTaskTitle(rawMsg, targetUser = null) {
   let text = rawMsg || '';
-  if (cleanedMentionName) text = text.replace(cleanedMentionName, '');
+
+  // 1. Remove target user mention (full name, first name, last name)
+  if (targetUser && targetUser.name) {
+    const escapedFull = targetUser.name.replace(/[\.\*\+\?\^\$\{\}\(\)\|\[\]\\]/g, '\\$&');
+    text = text.replace(new RegExp('@?' + escapedFull + '\\b', 'gi'), '');
+    const parts = targetUser.name.split(' ');
+    for (const part of parts) {
+      if (part.length >= 3) {
+        const escapedPart = part.replace(/[\.\*\+\?\^\$\{\}\(\)\|\[\]\\]/g, '\\$&');
+        text = text.replace(new RegExp('@?' + escapedPart + '\\b', 'gi'), '');
+      }
+    }
+  }
+  text = text.replace(/@\S+/g, '');
+
+  // 2. Remove trailing dispatch / send / trigger instructions:
+  // e.g. ', and the message will be send on 6-11-2026 4:00pm clock'
+  // 'and message will be sent at 4pm'
+  text = text.replace(/[,;.]?\s*(?:and\s+)?(?:the\s+)?(?:message|task|notification|alert|dispatch)?\s*(?:will\s+be\s+|to\s+be\s+)?(?:send|sent|triggered|dispatched|delivered|allotted)\s*(?:on|at|by|in)\s+.*$/gi, '');
+  text = text.replace(/\b(?:on\s+)?\d{1,4}[-/.]\d{1,2}[-/.]\d{2,4}\s+(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm)?(?:\s*clock)?\b/gi, '');
+  text = text.replace(/\btomorrow(?:\s*(?:at|by))?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?(?:\s*clock)?\b/gi, '');
+  text = text.replace(/\b(?:today\s*)?(?:at|by)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)(?:\s*clock)?\b/gi, '');
+  text = text.replace(/\bin\s+\d+(?:\.\d+)?\s*(?:mins?|minutes?|hrs?|hours?|days?)\b/gi, '');
+  text = text.replace(/\btomorrow\s*(?:morning|afternoon|evening|night)?\b/gi, '');
+
+  // 3. Remove leading directives
   text = text
-    .replace(/@\S+/g, '')
     .replace(/\b(?:schedule|scheduled|scheduling|allot|allotted)\s*(?:a\s*)?(?:this\s*)?(?:task)?(?:\s*for|\s*to)?/gi, '')
-    .replace(/\btomorrow(?:\s*(?:at|by))?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/gi, '')
-    .replace(/\b(?:today\s*)?(?:at|by)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/gi, '')
-    .replace(/\bin\s+\d+(?:\.\d+)?\s*(?:mins?|minutes?|hrs?|hours?|days?)\b/gi, '')
-    .replace(/\btomorrow\s*(?:morning|afternoon|evening|night)?\b/gi, '')
     .replace(/^(create\s*task|task|assign\s*task|assign\s*to\s*[^:]+:|please|kripya|assign|plz|urgent|schedule\s*this\s*task|schedule\s*task)\s*/gi, '')
     .replace(/^(?:this\s*task|the\s*task)\s*[:\s-]*/gi, '')
-    .replace(/^[:\s\-–—]+/, '')
+    .replace(/^[:\s\-–—,]+/, '')
     .replace(/\s*(with|and)\s*ea\s*follow\s*up.*$/gi, '')
     .trim();
 
-  if (/^to\s+/i.test(text)) {
-    text = text.replace(/^to\s+/i, '').trim();
-  }
+  // If starts with 'for ' or 'to ', strip it
+  text = text.replace(/^(?:for|to)\s+/i, '').trim();
+
+  // Final punctuation strip
+  text = text.replace(/^[:\s\-–—,]+/, '').replace(/[,;\s\-–—]+$/, '').trim();
+
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : '';
 }
 
@@ -786,10 +840,13 @@ async function processAiTaskDelegation({
     // Check for @mention in text if taggedUserId was not explicitly set
     let cleanedMentionName = null;
     if (!targetUser && rawMsg) {
+      // Sort users by name length DESCENDING so 'Paras Goyal' is matched before 'Paras'!
+      const sortedUsers = [...allUsers].sort((a, b) => (b.name?.length || 0) - (a.name?.length || 0));
+
       // 1. Exact full name match across all users in DB (e.g. @Paras Goyal)
-      for (const u of allUsers) {
+      for (const u of sortedUsers) {
         if (!u.name) continue;
-        const escaped = u.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const escaped = u.name.replace(/[\.\*\+\?\^\$\{\}\(\)\|\[\]\\]/g, '\\$&');
         const userRegex = new RegExp(`@${escaped}\\b`, 'i');
         if (userRegex.test(rawMsg)) {
           targetUser = u;
@@ -799,11 +856,11 @@ async function processAiTaskDelegation({
       }
       // 2. Direct first name match across all users (e.g. @Paras, @Mohit, @Ayush)
       if (!targetUser) {
-        for (const u of allUsers) {
+        for (const u of sortedUsers) {
           if (!u.name) continue;
           const firstName = u.name.split(' ')[0].trim();
           if (firstName.length >= 2) {
-            const escaped = firstName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const escaped = firstName.replace(/[\.\*\+\?\^\$\{\}\(\)\|\[\]\\]/g, '\\$&');
             const firstRegex = new RegExp(`@${escaped}\\b`, 'i');
             if (firstRegex.test(rawMsg)) {
               targetUser = u;
@@ -818,7 +875,7 @@ async function processAiTaskDelegation({
         const atMatch = rawMsg.match(/@([a-zA-Z0-9_.-]+)/);
         if (atMatch) {
           const cand = atMatch[1].trim().toLowerCase();
-          targetUser = allUsers.find(u => {
+          targetUser = sortedUsers.find(u => {
             const uName = (u.name || '').trim().toLowerCase();
             const uFirst = uName.split(' ')[0].trim();
             const uEmailPrefix = (u.email || '').split('@')[0].toLowerCase();
@@ -860,7 +917,7 @@ async function processAiTaskDelegation({
     }
 
     // Clean task title
-    let cleanTitle = cleanTaskTitle(rawMsg, cleanedMentionName);
+    let cleanTitle = cleanTaskTitle(rawMsg, targetUser);
     if (!cleanTitle || cleanTitle.length < 3) {
       cleanTitle = `Task delegated to ${targetUser.name}: Operational assignment`;
     }
