@@ -136,6 +136,18 @@ async function runAutoMigrations(dbPool) {
     if (!folCol || folCol.length === 0) {
       await dbPool.query("ALTER TABLE tasks ADD COLUMN followups JSON");
     }
+    const [schedCol] = await dbPool.query("SHOW COLUMNS FROM tasks LIKE 'scheduled_at'");
+    if (!schedCol || schedCol.length === 0) {
+      await dbPool.query("ALTER TABLE tasks ADD COLUMN scheduled_at VARCHAR(64) NULL");
+    }
+    const [isSchedCol] = await dbPool.query("SHOW COLUMNS FROM tasks LIKE 'is_scheduled'");
+    if (!isSchedCol || isSchedCol.length === 0) {
+      await dbPool.query("ALTER TABLE tasks ADD COLUMN is_scheduled BOOLEAN DEFAULT FALSE");
+    }
+    const [dispCol] = await dbPool.query("SHOW COLUMNS FROM tasks LIKE 'dispatched_at'");
+    if (!dispCol || dispCol.length === 0) {
+      await dbPool.query("ALTER TABLE tasks ADD COLUMN dispatched_at VARCHAR(64) NULL");
+    }
 
     // --- Chat Channels Table Checks ---
     const [avatarCol] = await dbPool.query("SHOW COLUMNS FROM chat_channels LIKE 'avatar'");

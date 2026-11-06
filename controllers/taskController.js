@@ -7,6 +7,7 @@ import {
   broadcastFollowupAdded,
   broadcastNotification
 } from '../socket.js';
+import { dispatchScheduledTaskNow } from '../services/taskSchedulerService.js';
 
 const formatTaskRow = (t) => {
   if (!t) return null;
@@ -33,7 +34,10 @@ const formatTaskRow = (t) => {
     comments: typeof t.comments === 'string' ? JSON.parse(t.comments || '[]') : (t.comments || []),
     activityLog: typeof t.activity_log === 'string' ? JSON.parse(t.activity_log || '[]') : (t.activity_log || []),
     progress: Number(t.progress !== undefined && t.progress !== null ? t.progress : 0),
-    followups: typeof t.followups === 'string' ? JSON.parse(t.followups || '[]') : (t.followups || [])
+    followups: typeof t.followups === 'string' ? JSON.parse(t.followups || '[]') : (t.followups || []),
+    scheduledAt: t.scheduled_at || t.scheduledAt || null,
+    isScheduled: Boolean(t.is_scheduled || t.isScheduled || (t.status === 'Scheduled')),
+    dispatchedAt: t.dispatched_at || t.dispatchedAt || null
   };
 };
 
@@ -57,6 +61,9 @@ export const createTask = async (req, res) => {
   try {
     const taskData = req.body;
     const taskId = taskData.id || `TSK-${Date.now()}`;
+    const isScheduledTask = Boolean(taskData.isScheduled || taskData.status === 'Scheduled');
+    const taskStatus = isScheduledTask ? 'Scheduled' : (taskData.status || 'Assigned');
+    const scheduledAtTime = isScheduledTask ? (taskData.scheduledAt || null) : null;
 
     if (isConnected()) {
       await query(
@@ -65,8 +72,9 @@ export const createTask = async (req, res) => {
           co_assignees, creator_id, approval_owner_id, backup_person_id, watchers,
           priority, status, start_date, due_date, estimated_hours, actual_hours,
           delay_reason, recurring, tags, custom_fields, checklist, dependencies,
-          attachments, remarks, comments, activity_log, progress, followups
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          attachments, remarks, comments, activity_log, progress, followups,
+          scheduled_at, is_scheduled, dispatched_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           taskId,
           taskData.title || 'Untitled Task',
@@ -81,7 +89,7 @@ export const createTask = async (req, res) => {
           taskData.backupPersonId || null,
           JSON.stringify(taskData.watchers || []),
           taskData.priority || 'Normal',
-          taskData.status || 'Assigned',
+          taskStatus,
           taskData.startDate || new Date().toISOString().slice(0, 16),
           taskData.dueDate || new Date(Date.now() + 86400000 * 3).toISOString().slice(0, 16),
           Number(taskData.estimatedHours) || 8,
@@ -97,22 +105,45 @@ export const createTask = async (req, res) => {
           JSON.stringify(taskData.comments || []),
           JSON.stringify(taskData.activityLog || []),
           Math.max(0, Math.min(100, Number(taskData.progress || 0))),
-          JSON.stringify(taskData.followups || [])
+          JSON.stringify(taskData.followups || []),
+          scheduledAtTime,
+          isScheduledTask ? 1 : 0,
+          null
         ]
       );
 
       const rows = await query('SELECT * FROM tasks WHERE id = ?', [taskId]);
-      const created = rows && rows.length > 0 ? formatTaskRow(rows[0]) : { id: taskId, ...taskData };
+      const created = rows && rows.length > 0 ? formatTaskRow(rows[0]) : {
+        id: taskId,
+        ...taskData,
+        status: taskStatus,
+        isScheduled: isScheduledTask,
+        scheduledAt: scheduledAtTime
+      };
 
       broadcastTaskCreated(created);
-      broadcastNotification({
-        id: `notif-${Date.now()}`,
-        title: 'New Task Assigned',
-        message: `📋 Task "${created.title}" (${created.id}) was assigned.`,
-        type: 'assignment',
-        taskId: created.id,
-        timestamp: new Date().toISOString()
-      }, created.assigneeId);
+
+      // Only notify assignee immediately if the task is NOT scheduled for future trigger
+      if (!isScheduledTask) {
+        broadcastNotification({
+          id: `notif-${Date.now()}`,
+          title: 'New Task Assigned',
+          message: `📋 Task "${created.title}" (${created.id}) was assigned.`,
+          type: 'assignment',
+          taskId: created.id,
+          timestamp: new Date().toISOString()
+        }, created.assigneeId);
+      } else {
+        // Confirmation alert for creator that the task has been queued in the scheduler
+        broadcastNotification({
+          id: `notif-sched-queued-${Date.now()}`,
+          title: '⏰ Task Scheduled in Automations',
+          message: `Task "${created.title}" scheduled to trigger automatically at ${created.scheduledAt}.`,
+          type: 'info',
+          taskId: created.id,
+          timestamp: new Date().toISOString()
+        }, created.creatorId);
+      }
 
       return res.status(201).json({ success: true, task: created });
     }
@@ -121,6 +152,10 @@ export const createTask = async (req, res) => {
     const newTask = {
       id: taskId,
       ...taskData,
+      status: taskStatus,
+      isScheduled: isScheduledTask,
+      scheduledAt: scheduledAtTime,
+      dispatchedAt: null,
       progress: Math.max(0, Math.min(100, Number(taskData.progress || 0))),
       followups: taskData.followups || [],
       createdAt: new Date().toISOString()
@@ -132,6 +167,20 @@ export const createTask = async (req, res) => {
   } catch (error) {
     console.error('Error in createTask controller:', error);
     res.status(500).json({ success: false, error: 'Task creation failed' });
+  }
+};
+
+export const dispatchScheduledTask = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const task = await dispatchScheduledTaskNow(id);
+    if (!task) {
+      return res.status(404).json({ success: false, error: 'Task not found or could not be dispatched' });
+    }
+    res.json({ success: true, task });
+  } catch (error) {
+    console.error('Error in dispatchScheduledTask:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 
@@ -156,7 +205,10 @@ export const updateTask = async (req, res) => {
         assigneeId: 'assignee_id',
         creatorId: 'creator_id',
         approvalOwnerId: 'approval_owner_id',
-        backupPersonId: 'backup_person_id'
+        backupPersonId: 'backup_person_id',
+        scheduledAt: 'scheduled_at',
+        isScheduled: 'is_scheduled',
+        dispatchedAt: 'dispatched_at'
       };
 
       const jsonFieldMap = {

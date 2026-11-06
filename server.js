@@ -20,6 +20,7 @@ import sheetRoutes from './routes/sheetRoutes.js';
 import callRoutes from './routes/callRoutes.js';
 import workspaceRoutes from './routes/workspaceRoutes.js';
 import { startAutoSyncSchedule } from './services/sheetRegistryService.js';
+import { startTaskScheduler } from './services/taskSchedulerService.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -76,6 +77,9 @@ async function startServer() {
 
   // Start automatic read-only Google Sheets background sync (every 20 min)
   startAutoSyncSchedule(20);
+
+  // Start Zapier-style automated task dispatch background scheduler (every 10s)
+  startTaskScheduler(10000);
 
   server.listen(config.port, () => {
     console.log(`🚀 TaskPulse Pro Enterprise Server & Socket.IO running on http://localhost:${config.port}`);
