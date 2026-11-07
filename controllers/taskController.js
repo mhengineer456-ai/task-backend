@@ -13,6 +13,7 @@ const formatTaskRow = (t) => {
   if (!t) return null;
   return {
     ...t,
+    id: t.id !== undefined && t.id !== null ? String(t.id) : t.id,
     assigneeId: t.assignee_id || t.assigneeId,
     coAssignees: typeof t.co_assignees === 'string' ? JSON.parse(t.co_assignees || '[]') : (t.co_assignees || []),
     creatorId: t.creator_id || t.creatorId,
