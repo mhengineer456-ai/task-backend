@@ -15,7 +15,7 @@ import {
   broadcastChannelDeleted
 } from '../socket.js';
 import { logService } from '../services/logService.js';
-import { generateJobOrderPdf, generatePartyReportPdf, generateAccessoryStockPdf, generateCutLotsBarcodePdf } from '../services/pdfService.js';
+import { generateJobOrderPdf, generatePartyReportPdf, generateAccessoryStockPdf, generateCutLotsBarcodePdf, generateUncutLotsPdf } from '../services/pdfService.js';
 import { processUniversalQuery, loadFactorySheetsData } from '../services/aiQueryEngine.js';
 import { buildAiAggregatedContext } from '../services/aiContextAggregator.js';
 import { getAccessoryDbStatus, isAccessoryConnected, refreshAccessoryTableCounts } from '../config/accessoryDb.js';
@@ -1412,19 +1412,36 @@ export const askAiAssistant = async (req, res) => {
         const userAskedForPdf = /\b(pdf|generate\s*pdf|create\s*pdf|download\s*pdf|make\s*pdf|print\s*pdf|export\s*pdf|pdf\s*bana|bana\s*do\s*pdf|krdo\s*generate\s*pdf|pdf.*chahiye|chahiye.*pdf|pdf\s*do|show\s*pdf|slip\s*download|download\s*slip|slip\s*chahiye)\b/i.test(message);
 
         if (userAskedForPdf && !pdfAttachment) {
-          if (/\b(331|ss\s*lots|lots\s*of\s*ss|ss\s*party)\b/i.test(message) || /\b(ss\s*party|buyer:|total\s*\d+\s*lots)\b/i.test(aiReplyText)) {
+          const isPending = /uncut|pending|katne\s*ba|cutting\s*pending/i.test(message) || /uncut|cutting\s*pending/i.test(aiReplyText);
+          const isBarcode = /barcode/i.test(message) || /barcode/i.test(aiReplyText);
+
+          if (isBarcode) {
+            pdfAttachment = {
+              type: 'barcode-pipeline',
+              downloadUrl: `/api/chat/pdf/cut-lots-barcode-pending`,
+              filename: `Cut_Lots_Barcode_Print_Pending_Report.pdf`,
+              title: `Cut Complete Lots — Barcode Print Pending Pipeline Report`
+            };
+          } else if (isPending && !/\b(331|ss\s*lots|lots\s*of\s*ss|ss\s*party)\b/i.test(message)) {
+            pdfAttachment = {
+              type: 'uncut-lots',
+              downloadUrl: `/api/chat/pdf/uncut-lots-pending`,
+              filename: `Cutting_Pending_Uncut_Lots_Report.pdf`,
+              title: `Cutting Pending (Uncut) Lots Floor Pipeline Report`
+            };
+          } else if (/\b(331|ss\s*lots|lots\s*of\s*ss|ss\s*party)\b/i.test(message) || /\b(ss\s*party|buyer:|total\s*\d+\s*lots)\b/i.test(aiReplyText)) {
             let pName = 'SS';
             if (/zara/i.test(message + ' ' + aiReplyText)) pName = 'Zara';
             else if (/h&m|hm/i.test(message + ' ' + aiReplyText)) pName = 'H&M';
             else if (/mohit/i.test(message + ' ' + aiReplyText)) pName = 'Mohit Hosiery';
             const pSlug = pName.replace(/[^a-zA-Z0-9_-]/g, '_');
-            const isPending = /uncut|pending/i.test(message);
+            const isUncut = /uncut|pending/i.test(message);
             pdfAttachment = {
               type: 'party',
-              partyName: isPending ? `${pName} (Uncut Lots)` : pName,
-              downloadUrl: `http://localhost:5000/api/chat/pdf/party/${encodeURIComponent(pSlug)}${isPending ? '?status=pending' : ''}`,
-              filename: `${pSlug}_${isPending ? 'Uncut_' : ''}Lots_Report.pdf`,
-              title: `${pName} - ${isPending ? 'Uncut' : 'Complete'} Lots Report`
+              partyName: isUncut ? `${pName} (Uncut Lots)` : pName,
+              downloadUrl: `/api/chat/pdf/party/${encodeURIComponent(pSlug)}${isUncut ? '?status=pending' : ''}`,
+              filename: `${pSlug}_${isUncut ? 'Uncut_' : ''}Lots_Report.pdf`,
+              title: `${pName} - ${isUncut ? 'Uncut' : 'Complete'} Lots Report`
             };
           } else {
             const mentionedLot = message.match(/(?:LOT[-_\s]*)?(\d{4,7})\b/i) || aiReplyText.match(/(?:LOT[-_\s]*)?(\d{4,7})\b/i);
@@ -1435,7 +1452,7 @@ export const askAiAssistant = async (req, res) => {
               pdfAttachment = {
                 lotNumber: lNum,
                 jobOrderNo: jNum,
-                downloadUrl: `http://localhost:5000/api/chat/pdf/${lNum}`,
+                downloadUrl: `/api/chat/pdf/${lNum}`,
                 filename: `JobOrder_${jNum}_Lot_${lNum}.pdf`,
                 title: `Job Order & Production Slip (${jNum} • Lot ${lNum})`
               };
@@ -1838,6 +1855,49 @@ export const generateCutLotsBarcodePdfController = async (req, res) => {
     generateCutLotsBarcodePdf(reportData, res);
   } catch (err) {
     console.error('Error generating Barcode Pending PDF:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: 'Failed to generate PDF' });
+    }
+  }
+};
+
+export const generateUncutLotsPdfController = async (req, res) => {
+  try {
+    const sheets = loadFactorySheetsData();
+    if (!sheets) {
+      return res.status(500).json({ success: false, error: 'Factory data not available' });
+    }
+
+    const pendingLotsList = sheets.pendingLotsList || [];
+    const rows = pendingLotsList.map(l => ({
+      lot: l.lot,
+      jo: l.jo && l.jo !== 'N/A' ? l.jo : `JO-${l.lot}`,
+      party: l.party || 'Standard',
+      garment: l.garment || 'Garment',
+      style: l.style || '',
+      fabric: l.fabric || 'Standard',
+      qty: l.qty || '0',
+      rolls: l.rolls || '1 ROLLS',
+      emb: l.embVendor && l.embVendor !== 'NA' ? l.embVendor : 'NA',
+      status: 'Awaiting Cutting'
+    }));
+
+    const reportData = {
+      title: 'Cutting Pending (Uncut) Lots Floor Pipeline',
+      totalLots: rows.length,
+      totalMasterOrders: sheets.totalLots || 2115,
+      cutCount: sheets.cutCount || 1856,
+      pendingCount: rows.length,
+      rows
+    };
+
+    const filename = 'Cutting_Pending_Uncut_Lots_Report.pdf';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    generateUncutLotsPdf(reportData, res);
+  } catch (err) {
+    console.error('Error generating Uncut Lots PDF:', err);
     if (!res.headersSent) {
       res.status(500).json({ success: false, error: 'Failed to generate PDF' });
     }

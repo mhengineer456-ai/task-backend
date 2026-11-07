@@ -15,6 +15,7 @@ import {
   generatePartyPdf,
   generateAccessoryStockPdfController,
   generateCutLotsBarcodePdfController,
+  generateUncutLotsPdfController,
   proxyImage,
   getAiContextForN8n,
   delegateAiTask,
@@ -45,6 +46,7 @@ router.post('/groups', createGroupChannel);
 
 // PDF Generator Routes for Chatbot
 router.get('/pdf/cut-lots-barcode-pending', generateCutLotsBarcodePdfController);
+router.get('/pdf/uncut-lots-pending', generateUncutLotsPdfController);
 router.get('/pdf/accessory-stock', generateAccessoryStockPdfController);
 router.post('/pdf/accessory-stock', generateAccessoryStockPdfController);
 router.get('/pdf/party/:partyName', generatePartyPdf);
