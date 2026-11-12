@@ -2135,6 +2135,76 @@ export async function processUniversalQuery(prompt, context = {}) {
           const isPolybagQuery = /\b(poly\s*begs?|poly\s*bags?|polybegs?|polybags?|polbegs?|polbags?|lifaf(?:a|e|aa)?)\b/i.test(p) || /\b(poly\s*begs?|poly\s*bags?|polybegs?|polybags?)\b/i.test(String(ocr.item || ocr.accessoryType || ''));
           const isZipQuery = /\b(zip|zipper|chain)\b/i.test(p) || /\b(zip|zipper)\b/i.test(String(ocr.item || ocr.accessoryType || ''));
 
+          // Check if query is asking about Material Issuance / Floor Issue Logs
+          const isImageIssueQuery = (
+            /\b(issue\s*logs?|issuance|accessory\s*issue|materials?\s*issued?|re-?issue|return\s*materials?|issue\s*history|issue\s*record|issue\s*details?|issue\s*list)\b/i.test(p) ||
+            (/\b(issue|issued|issuing)\b/i.test(p) && /\b(kisko|kisne|kise|against|lot|ab\s*tk|abhi\s*tk|aaj\s*tk|history|record|logs?|list|kar[ae]|kra|kiya|hua|kare|hai|h|tha|the|thi|diya|diye|kaha|kab|kya|kis|bheja)\b/i.test(p)) ||
+            /\b(kis\s*kis(?:ko)?\s*(?:or\s*kis\s*kis\s*lot)?.*(?:issue|diya|bheja))\b/i.test(p) ||
+            /\b(issuance)\b/i.test(p) ||
+            (/\b(kisko|kisne|kise|kis\s*lot\s*(?:ko|me|mein|k\s*against)|kis\s*karigar)\b/i.test(p) && /\b(diya|diye|bheja|bheje|issue|nikala|nikale|banta|banti)\b/i.test(p))
+          );
+
+          if (isImageIssueQuery) {
+            const detectedBrand = (ocr.brand || ocr.printedText || ocr.rawExtractedText || '').trim();
+            const catName = isLabelQuery ? 'label' : (isTagQuery ? 'tag' : (isPatchQuery ? 'patch' : (isButtonQuery ? 'button' : (isDoriQuery ? 'dori' : (isStopperQuery ? 'stopper' : (isPolybagQuery ? 'polybeg' : (isZipQuery ? 'zip' : '')))))));
+            const displayCat = isLabelQuery ? 'LABELS' : (isTagQuery ? 'TAGS' : (isPatchQuery ? 'PATCHES' : (isButtonQuery ? 'BUTTONS' : (isDoriQuery ? 'DORI' : (isStopperQuery ? 'STOPPERS' : (isPolybagQuery ? 'POLYBEG' : (isZipQuery ? 'ZIPPERS' : 'TRIMS')))))));
+            const displayBrand = detectedBrand ? detectedBrand.toUpperCase() : 'ACCESSORY';
+
+            // 1. Query live issue_logs table
+            let issueLogs = await searchIssueLogs(p, { brand: detectedBrand, category: catName, limit: 50 });
+            if ((!issueLogs || issueLogs.length === 0) && detectedBrand) {
+              issueLogs = await searchIssueLogs(detectedBrand, { limit: 50 });
+            }
+
+            // 2. If specific category was asked, filter issueLogs by category
+            if (issueLogs && issueLogs.length > 0 && catName) {
+              const catLogs = issueLogs.filter(l => new RegExp(catName, 'i').test(JSON.stringify(l.parsedMaterials || l.materials || '')));
+              if (catLogs.length > 0) issueLogs = catLogs;
+            }
+
+            // 3. Fetch current stock balance from materials table for full operational picture
+            let stockMaterials = [];
+            if (detectedBrand) {
+              stockMaterials = await searchAccessoryMaterialsSmart(catName ? `${detectedBrand} ${catName}` : detectedBrand);
+            }
+            if (isLabelQuery && stockMaterials.length > 0) {
+              const lOnly = stockMaterials.filter(m => /label/i.test(m.category || m.name));
+              if (lOnly.length > 0) stockMaterials = lOnly;
+            } else if (isTagQuery && stockMaterials.length > 0) {
+              const tOnly = stockMaterials.filter(m => /tag/i.test(m.category || m.name));
+              if (tOnly.length > 0) stockMaterials = tOnly;
+            }
+            const totalStock = stockMaterials.reduce((acc, m) => acc + (Number(m.stock) || 0), 0);
+            const locations = Array.from(new Set(stockMaterials.map(m => m.location).filter(Boolean))).join(', ') || 'Main Store';
+
+            if (issueLogs && issueLogs.length > 0) {
+              const md = formatIssueLogsToMarkdown(issueLogs, `${displayBrand} ${displayCat}`);
+              let answer = `Aapki uploaded photo se brand **"${displayBrand}"** detect hua hai.\n\n` +
+                `Factory Suite Pro accessory database ke live \`issue_logs\` records ke anusar, **${displayBrand} ${displayCat}** ke issuance details niche diye gaye hain:\n\n${md}\n\n` +
+                (totalStock > 0 ? `📦 **Current Godown Balance:** Is item ka **${Number(totalStock).toLocaleString()} units** balance godown (*${locations}*) mein surakshit available hai.` : '');
+
+              return {
+                handled: true,
+                answer
+              };
+            } else {
+              let emptyAnswer = `### 📋 Accessory Issuance History: **${displayBrand} ${displayCat}**\n\n` +
+                `Aapki uploaded photo se brand **"${displayBrand}"** detect hua hai.\n\n` +
+                `* 🔍 **Issuance Status:** **Abhi tak koi issue record nahi mila (0 Issues Logged)**\n` +
+                `* ℹ️ Factory Suite Pro accessory software ke live \`issue_logs\` database ke anusar, **${displayBrand} ${displayCat}** abhi tak kisi bhi karigar, lot, ya department ko issue **nahi** kiya gaya hai.\n\n` +
+                `---\n\n` +
+                `### 📦 Current Godown Stock Status:\n` +
+                `* **Total Available Stock:** **${Number(totalStock).toLocaleString()} units**\n` +
+                `* **Godown Location:** **${locations}** par surakshit rakha hua hai.\n\n` +
+                `💡 Jaise hi floor par is item ka material issue log generate hoga, PulseBot AI real-time me use track karke aapko update dega!`;
+
+              return {
+                handled: true,
+                answer: emptyAnswer
+              };
+            }
+          }
+
           const candidateTerms = [];
           if (ocr.brand && ocr.brand.trim()) {
             const b = ocr.brand.trim();

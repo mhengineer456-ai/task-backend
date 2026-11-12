@@ -289,7 +289,7 @@ export async function getRecentIssueLogs(limit = 20) {
  * Search Issue Logs by material name, category, receiver, lotId, or keyword
  */
 export async function searchIssueLogs(query = '', options = {}) {
-  const { limit = 50, lotId: forcedLotId = null, receiver: forcedReceiver = null } = options;
+  const { limit = 50, lotId: forcedLotId = null, receiver: forcedReceiver = null, brand: forcedBrand = null, category: forcedCategory = null } = options;
   try {
     const lower = (query || '').toLowerCase().trim();
 
@@ -301,15 +301,15 @@ export async function searchIssueLogs(query = '', options = {}) {
     }
 
     // 2. Extract Category (e.g. label, tag, dori, patch, button, zip, polybeg, etc.)
-    let categoryTerm = null;
-    if (lower) {
+    let categoryTerm = forcedCategory ? String(forcedCategory).toLowerCase().trim() : null;
+    if (!categoryTerm && lower) {
       const catMatch = lower.match(/\b(labels?|tags?|doris?|dooris?|patch(?:es)?|matel\s*patch|buttons?|zips?|zippers?|polybegs?|polybags?|begs?|tapes?|inners?|elastics?|cuffs?|washcare|stoppers?|pasting|ribit|ribbit|rivets?|eyelets?|i\.?let|fashion\s*patti|patti|spray|washal)\b/i);
       if (catMatch) categoryTerm = catMatch[1].replace(/s$/, '').replace(/es$/, '');
     }
 
     // 3. Extract Brand from query
     const knownBrands = [
-      'amiri', 'nike jacket', 'nike', 'tommy', 'zara', 'addidas brick jacket myshelter',
+      'gant', 'amiri', 'nike jacket', 'nike', 'tommy', 'zara', 'addidas brick jacket myshelter',
       'addidas tag brick', 'addidas brick', 'addidas flower jacket', 'addidas flower',
       'addidas', 'adidas', 'lacoste jacket', 'lacoste', 'polo jacket', 'polo', 'armani', 'carhartt',
       'coach jacket', 'coach', 'diesel shirt', 'diesel', 'herms', 'represent',
@@ -318,8 +318,8 @@ export async function searchIssueLogs(query = '', options = {}) {
       'essentinal  jacket', 'essentinal', 'essentials', 'stussy', 'bonkers', 'bottega veneta',
       'acne studio', 'hacket', 'c.k', 'barbour', 'l.v'
     ];
-    let brandMatch = null;
-    if (lower) {
+    let brandMatch = forcedBrand ? String(forcedBrand).toLowerCase().trim() : null;
+    if (!brandMatch && lower) {
       brandMatch = knownBrands.find(b => lower.includes(b));
     }
 
