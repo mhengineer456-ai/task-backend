@@ -2996,11 +2996,12 @@ Directives:
       const polyTitlePrompt = polySizeMatchPrompt ? `POLYBEG ${polySizeMatchPrompt[1]}/${polySizeMatchPrompt[2]}` : 'POLYBEG';
 
       let detectedBrandForPrompt = null;
-      if (/addidas|adidas/i.test(lower) || materials.every(m => /addidas|adidas/i.test(m.name || m.brand))) detectedBrandForPrompt = 'ADIDAS';
-      else if (/channal|chanel/i.test(lower) || materials.every(m => /channal|chanel/i.test(m.name || m.brand))) detectedBrandForPrompt = 'CHANEL';
-      else if (/amiri/i.test(lower) || materials.every(m => /amiri/i.test(m.name || m.brand))) detectedBrandForPrompt = 'AMIRI';
-      else if (/trapstar|trapster/i.test(lower) || materials.every(m => /trapstar|trapster/i.test(m.name || m.brand))) detectedBrandForPrompt = 'TRAPSTAR';
-      else if (/burberry|burburry/i.test(lower) || materials.every(m => /burberry|burburry/i.test(m.name || m.brand))) detectedBrandForPrompt = 'BURBERRY';
+      if (/addidas|adidas/i.test(lower) || (materials.length > 0 && materials.every(m => /addidas|adidas/i.test(m.name || m.brand)))) detectedBrandForPrompt = 'ADIDAS';
+      else if (/channal|chanel/i.test(lower) || (materials.length > 0 && materials.every(m => /channal|chanel/i.test(m.name || m.brand)))) detectedBrandForPrompt = 'CHANEL';
+      else if (/amiri/i.test(lower) || (materials.length > 0 && materials.every(m => /amiri/i.test(m.name || m.brand)))) detectedBrandForPrompt = 'AMIRI';
+      else if (/trapstar|trapster/i.test(lower) || (materials.length > 0 && materials.every(m => /trapstar|trapster/i.test(m.name || m.brand)))) detectedBrandForPrompt = 'TRAPSTAR';
+      else if (/burberry|burburry/i.test(lower) || (materials.length > 0 && materials.every(m => /burberry|burburry/i.test(m.name || m.brand)))) detectedBrandForPrompt = 'BURBERRY';
+      else if (/gant/i.test(lower) || (materials.length > 0 && materials.every(m => /gant/i.test(m.name || m.brand)))) detectedBrandForPrompt = 'GANT';
 
       const promptTargetName = detectedBrandForPrompt
         ? (isLabelQuery ? `${detectedBrandForPrompt} LABELS` : isTagQuery ? `${detectedBrandForPrompt} TAGS` : isPolybagQuery ? `${detectedBrandForPrompt} ${polyTitlePrompt}` : `${detectedBrandForPrompt} items`)
@@ -3096,7 +3097,7 @@ STRICT DIRECTIVES:
         ...(imageGallery ? { imageGallery } : {}),
         pdfAttachment: {
           type: 'accessory-stock',
-          downloadUrl: `http://localhost:5000/api/chat/pdf/accessory-stock?category=${encodeURIComponent(cleanTitle || 'ALL')}&search=${encodeURIComponent(cleanTitle || '')}`,
+          downloadUrl: `/api/chat/pdf/accessory-stock?category=${encodeURIComponent(cleanTitle || 'ALL')}&search=${encodeURIComponent(cleanTitle || '')}`,
           filename: `Accessory_Stock_${String(cleanTitle || 'Report').replace(/[^a-zA-Z0-9_-]/g, '_')}_With_Photos.pdf`,
           title: `Accessory & Trims Stock Report (${cleanTitle || 'Inventory'})`
         }
