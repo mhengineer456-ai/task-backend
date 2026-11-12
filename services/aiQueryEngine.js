@@ -999,29 +999,35 @@ export async function extractLotFromImageWithOCR(imageUrl, userPrompt = '') {
     }
 
     const ocrInstruction = `You are an expert OCR & Garment Manufacturing Production Inspector for Factory Suite Pro.
-You are inspecting an uploaded image from an apparel/garment manufacturing facility (such as a cutting slip, job order card, bundle ticket, barcode/QR label, fabric roll tag, challan, or handwritten/stamped production ticket).
+You are inspecting an uploaded image from an apparel/garment manufacturing facility (such as a cutting slip, job order card, bundle ticket, barcode/QR label, fabric roll tag, brand label, woven neck label, hangtag, patch, trim, button, zipper, dori, polybag, challan, or handwritten/stamped production ticket).
 
 PRIMARY OBJECTIVES:
 1. DETECT THE LOT NUMBER:
    - Identify the primary Lot Number (typically 3 to 7 digits, e.g. 67046, 11300, 61008, 12025, 12034, 11028, LOT-67046, JO-11300, L: 67046, Lot #...).
    - Look for digits next to words like "LOT", "LOT NO", "LOT NUMBER", "L.", "Challan", "Job Order", "Order No", or prominent handwritten/printed numbers on the slip.
-2. EXTRACT GARMENT & PRODUCTION ATTRIBUTES:
+2. DETECT ACCESSORY / TRIM / LABEL / TAG:
+   - Is this an image of a garment trim, accessory, or packaging material (such as a brand neck label, main woven label, wash care label, brand tag, hangtag, badge, rubber patch, metal patch, zipper, drawcord/dori, button, stopper, or polybag packaging)?
+   - If YES: set "isAccessory": true, "accessoryType": "Label" (or "Tag", "Patch", "Button", "Zipper", "Dori", "Stopper", "Polybag"), and set "brand" to the prominent brand name (e.g. "GANT", "ADIDAS", "ZARA", "NIKE", etc.).
+   - If it is a finished garment (e.g. full hoodie, t-shirt, shorts) or paper cutting slip: set "isAccessory": false.
+3. EXTRACT GARMENT & PRODUCTION ATTRIBUTES:
    - Party / Buyer Name (e.g. Mohit Hosiery, SS, BB, DB, Zara, etc.)
-   - Brand Name (e.g. SCUFFERS, NIKE, ADIDAS, PUMA, QC On, etc. - extract the concise brand name!)
-   - Printed / Embroidered Text (any prominent logo, wording, or text on the fabric, e.g. "scuffers")
-   - Garment Type / Item (e.g. Lower, Track Pants, Shirt, T-Shirt, Hoodie, Jacket)
+   - Brand Name (e.g. GANT, SCUFFERS, NIKE, ADIDAS, PUMA, QC On, etc. - extract the concise brand name!)
+   - Printed / Embroidered Text (any prominent logo, wording, or text on the label/fabric, e.g. "GANT")
+   - Garment Type / Item (e.g. Label, Tag, Lower, Track Pants, Shirt, T-Shirt, Hoodie, Jacket)
    - Style / Pattern (e.g. Boxy Lower, Regular, Full Zipper)
    - Fabric / Color / Shades (e.g. Cream, Off-White, Black, Fleece)
    - Sizes breakdown (e.g. M/M/L/L/XL)
    - Quantity / Pcs
    - Date / Supervisor signature
-3. CONFIDENCE LEVEL: "high", "medium", or "low"
+4. CONFIDENCE LEVEL: "high", "medium", or "low"
 
 OUTPUT FORMAT: Return STRICT valid JSON (no markdown formatting, no code blocks):
 {
   "detected": true,
   "lotNumber": "12034",
   "confidence": "high",
+  "isAccessory": false,
+  "accessoryType": null,
   "party": "Mohit Hosiery",
   "brand": "SCUFFERS",
   "printedText": "scuffers",
@@ -1036,7 +1042,7 @@ OUTPUT FORMAT: Return STRICT valid JSON (no markdown formatting, no code blocks)
   "rawExtractedText": "Brief summary of text visible in image",
   "notes": "Clear printed ticket"
 }
-If no lot number is detected, set "detected": false, "lotNumber": null, and set "notes" to explain what was seen.`;
+If inspecting a label or trim without a lot number, set "detected": false, "lotNumber": null, "isAccessory": true, "accessoryType": "Label" (or "Tag"), "brand": "GANT", "printedText": "GANT", "item": "Label", and set "notes" to describe the label.`;
 
     const modelCandidates = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.8-flash'];
     let parsedOcr = null;
@@ -2106,6 +2112,169 @@ export async function processUniversalQuery(prompt, context = {}) {
           };
         }
       } else {
+        // =========================================================================
+        // ACCESSORY / TRIM / LABEL / TAG / MATERIAL IMAGE INSPECTION
+        // If image is a brand label, tag, patch, button, trim, zipper, dori, or polybag,
+        // OR user is in Accessory Mode, OR prompt asks for accessory stock / rack location:
+        // Query the live Accessory Software SQL Database (railway.materials) directly!
+        // =========================================================================
+        const isAccessoryInquiry =
+          aiMode === 'accessory' ||
+          Boolean(ocr.isAccessory) ||
+          /\b(label|labels|tag|tags|trim|trims|accessory|accessories|stock|kitna\s*stock|rack|godown|material|materials|dori|doori|zipper|zip|button|buttons|patch|patches|polybeg|polybag|elastic|stopper)\b/i.test(p) ||
+          /\b(label|labels|tag|tags|trim|trims|patch|patches|button|buttons|zipper|dori|stopper|polybag|accessory)\b/i.test(String(ocr.item || ocr.accessoryType || ocr.notes || '')) ||
+          Boolean(ocr.brand && /\b(stock|kitna|rack|godown|kahan|dikhao|batao|kya\s*hai)\b/i.test(p));
+
+        if (isAccessoryInquiry) {
+          const candidateTerms = [];
+          if (ocr.brand && ocr.brand.trim()) {
+            candidateTerms.push(ocr.brand.trim());
+          }
+          if (ocr.printedText && ocr.printedText.trim() && !candidateTerms.includes(ocr.printedText.trim())) {
+            candidateTerms.push(ocr.printedText.trim());
+          }
+          if (ocr.rawExtractedText && ocr.rawExtractedText.trim() && ocr.rawExtractedText.trim().length <= 30 && !candidateTerms.includes(ocr.rawExtractedText.trim())) {
+            candidateTerms.push(ocr.rawExtractedText.trim());
+          }
+          const cleanedPrompt = p
+            .replace(/\b(is|iss|in|ye|yeh|iska|iski|iske|unka|unki|unke|k|ke|ka|ki|ko|stock|kitna|kitne|kitni|hai|h|hain|batao|btana|check|karo|krdo|dekho|dikhao|please|plz|photo|image|pic|tasveer|tasvir)\b/gi, ' ')
+            .replace(/[^a-zA-Z0-9\s/.-]/g, ' ')
+            .trim();
+          if (cleanedPrompt && !candidateTerms.includes(cleanedPrompt)) {
+            candidateTerms.push(cleanedPrompt);
+          }
+          if (ocr.accessoryType && !candidateTerms.includes(ocr.accessoryType)) {
+            candidateTerms.push(ocr.accessoryType);
+          } else if (ocr.item && !candidateTerms.includes(ocr.item) && !/garment|apparel|shirt|t-shirt|pant|lower/i.test(ocr.item)) {
+            candidateTerms.push(ocr.item);
+          }
+
+          let matchedMaterials = [];
+          let matchedTerm = '';
+
+          for (const term of candidateTerms) {
+            try {
+              const res = await searchAccessoryMaterialsSmart(term);
+              if (res && res.length > 0) {
+                matchedMaterials = res;
+                matchedTerm = term;
+                break;
+              }
+            } catch (err) {
+              console.warn(`[Accessory Image Search] Error searching for "${term}":`, err.message);
+            }
+          }
+
+          // If no specific brand matched, but category was mentioned (e.g. user asks "label stock")
+          if ((!matchedMaterials || matchedMaterials.length === 0) && (ocr.accessoryType || ocr.item || /\b(label|tag|patch|button|dori|polybeg|polybag)\b/i.test(p))) {
+            const catWord = (p.match(/\b(labels?|tags?|patches?|buttons?|doris?|polybegs?|polybags?)\b/i) || [])[0] || ocr.accessoryType || ocr.item;
+            if (catWord) {
+              try {
+                matchedMaterials = await searchAccessoryMaterialsSmart(catWord);
+                matchedTerm = catWord;
+              } catch (e) {}
+            }
+          }
+
+          if (matchedMaterials && matchedMaterials.length > 0) {
+            const isLabelQuery = /\b(labels?)\b/i.test(p) || /\b(labels?)\b/i.test(String(ocr.item || ocr.accessoryType || ''));
+            const isTagQuery = /\b(tags?)\b/i.test(p) || /\b(tags?)\b/i.test(String(ocr.item || ocr.accessoryType || ''));
+
+            let displayItems = matchedMaterials;
+            if (isLabelQuery) {
+              const labelOnly = matchedMaterials.filter(m => /label/i.test(m.category || m.name));
+              if (labelOnly.length > 0) {
+                const otherItems = matchedMaterials.filter(m => !/label/i.test(m.category || m.name));
+                displayItems = [...labelOnly, ...otherItems];
+              }
+            } else if (isTagQuery) {
+              const tagOnly = matchedMaterials.filter(m => /tag/i.test(m.category || m.name));
+              if (tagOnly.length > 0) {
+                const otherItems = matchedMaterials.filter(m => !/tag/i.test(m.category || m.name));
+                displayItems = [...tagOnly, ...otherItems];
+              }
+            }
+
+            const primaryBrand = ocr.brand || displayItems[0]?.brand || matchedTerm || displayItems[0]?.name || 'Accessory';
+            const primaryCat = isLabelQuery ? 'LABELS' : (isTagQuery ? 'TAGS' : (displayItems[0]?.category || 'ACCESSORIES'));
+            const displayTitle = `${primaryBrand.toUpperCase()} ${primaryCat.toUpperCase()}`.trim();
+
+            const totalStockSum = displayItems.reduce((acc, m) => acc + (Number(m.stock) || 0), 0);
+            const totalPacketsSum = displayItems.reduce((acc, m) => acc + (Number(m.packets) || 0), 0);
+
+            const itemsWithImg = displayItems.filter(m => m.imageUrl && String(m.imageUrl).trim().startsWith('http'));
+            let imageAttachment = null;
+            let imageGallery = null;
+
+            if (itemsWithImg.length > 0) {
+              const topImg = itemsWithImg[0];
+              imageAttachment = {
+                url: topImg.imageUrl,
+                title: `${topImg.name} (${topImg.category || 'Accessory'})`,
+                category: topImg.category || 'Accessory',
+                caption: `Stock: ${Number(topImg.stock || 0).toLocaleString()} ${topImg.unit || 'Pcs'} | Location: ${topImg.location || 'Godown'}`
+              };
+
+              if (itemsWithImg.length > 1) {
+                imageGallery = itemsWithImg.slice(0, 100).map(m => ({
+                  url: m.imageUrl,
+                  imageUrl: m.imageUrl,
+                  title: `${m.name} (${m.category || 'Accessory'})`,
+                  name: m.name,
+                  category: m.category || 'Accessory',
+                  garment: m.category || 'Accessory',
+                  stock: m.stock,
+                  unit: m.unit || 'Pcs',
+                  packets: m.packets,
+                  location: m.location || 'Godown',
+                  caption: `Stock: ${Number(m.stock || 0).toLocaleString()} ${m.unit || 'Pcs'} | Location: ${m.location || 'Godown'}`
+                }));
+              }
+            }
+
+            const cardMd = formatMaterialDetailCardToMarkdown(displayItems, displayTitle, Boolean(itemsWithImg.length > 0));
+
+            const locationsList = Array.from(new Set(displayItems.map(m => m.location).filter(Boolean))).join(', ') || 'Main Store';
+            let headerText = `Aapki uploaded photo se brand **"${primaryBrand.toUpperCase()}"** detect hua hai.\n\n` +
+              `Factory Suite Pro accessory database ke live records ke anusar, aapke paas **Grand Total ${Number(totalStockSum).toLocaleString()} units** (${totalPacketsSum > 0 ? `${Number(totalPacketsSum).toLocaleString()} Packets` : `${displayItems.length} items`}) ka verified stock available hai, jo ki **${locationsList}** par rakha gaya hai:`;
+
+            const fullAnswer = `${headerText}\n\n${cardMd}`;
+
+            const pdfAttachment = {
+              type: 'accessory-stock',
+              downloadUrl: `/api/chat/pdf/accessory-stock?category=${encodeURIComponent(displayItems[0]?.category || 'ALL')}&search=${encodeURIComponent(primaryBrand || '')}`,
+              filename: `Accessory_Stock_${String(displayTitle || 'Report').replace(/[^a-zA-Z0-9_-]/g, '_')}_With_Photos.pdf`,
+              title: `Accessory & Trims Stock Report (${displayTitle})`
+            };
+
+            return {
+              handled: true,
+              answer: fullAnswer,
+              pdfAttachment,
+              ...(imageAttachment ? { imageAttachment } : {}),
+              ...(imageGallery ? { imageGallery } : {})
+            };
+          }
+
+          // If in accessory mode or definitely an accessory inquiry, but 0 matches found in database
+          if (aiMode === 'accessory' || ocr.isAccessory || /\b(label|tag|trim|patch|button|dori|stopper|polybag|accessory)\b/i.test(p)) {
+            const detectedItemStr = ocr.brand || ocr.printedText || ocr.rawExtractedText || 'Accessory / Trim';
+            let notFoundReply = `### 🏷️ Accessory Image Inspection Complete\n\n` +
+              `* 🔍 **Detected From Image:** **${detectedItemStr}**${ocr.item ? ` (Item: **${ocr.item}**)` : ''}\n` +
+              (ocr.rawExtractedText ? `* 📝 **Visible Text:** *"${ocr.rawExtractedText}"*\n` : '') +
+              `\n---\n\n` +
+              `ℹ️ **Stock Status:** Accessory software database ke materials inventory mein **"${detectedItemStr}"** ke naam se koi active stock record nahi mila.\n\n` +
+              `💡 **Suggested Actions:**\n` +
+              `1. Kripya check karein ki kya yeh item database mein kisi doosre brand name ya item code ke naam se registered hai.\n` +
+              `2. Aap kisi specific brand (jaise *Adidas, Chanel, Amiri, Zara, Nike*) ya category (*Tags, Labels, Buttons, Polybeg, Dori*) ka naam type karke live stock check kar sakte hain!`;
+
+            return {
+              handled: true,
+              answer: notFoundReply
+            };
+          }
+        }
+
         // Reverse Visual Search (Image-to-Image Matching against Database Design Artworks)
         // When no paper slip or written lot number is visible on the garment,
         // compare the uploaded article photo directly against official design artworks in the factory database!
@@ -2784,17 +2953,18 @@ Directives:
         const polyTitle = polySizeMatch ? `POLYBEG ${polySizeMatch[1]}/${polySizeMatch[2]}` : 'POLYBEG';
 
         let detectedBrand = null;
-        if (/addidas|adidas/i.test(lower) || materials.every(m => /addidas|adidas/i.test(m.name || m.brand))) detectedBrand = 'ADIDAS';
-        else if (/channal|chanel/i.test(lower) || materials.every(m => /channal|chanel/i.test(m.name || m.brand))) detectedBrand = 'CHANEL';
-        else if (/amiri/i.test(lower) || materials.every(m => /amiri/i.test(m.name || m.brand))) detectedBrand = 'AMIRI';
-        else if (/trapstar|trapster/i.test(lower) || materials.every(m => /trapstar|trapster/i.test(m.name || m.brand))) detectedBrand = 'TRAPSTAR';
-        else if (/burberry|burburry/i.test(lower) || materials.every(m => /burberry|burburry/i.test(m.name || m.brand))) detectedBrand = 'BURBERRY';
+        if (/addidas|adidas/i.test(lower) || (materials.length > 0 && materials.every(m => /addidas|adidas/i.test(m.name || m.brand)))) detectedBrand = 'ADIDAS';
+        else if (/channal|chanel/i.test(lower) || (materials.length > 0 && materials.every(m => /channal|chanel/i.test(m.name || m.brand)))) detectedBrand = 'CHANEL';
+        else if (/amiri/i.test(lower) || (materials.length > 0 && materials.every(m => /amiri/i.test(m.name || m.brand)))) detectedBrand = 'AMIRI';
+        else if (/trapstar|trapster/i.test(lower) || (materials.length > 0 && materials.every(m => /trapstar|trapster/i.test(m.name || m.brand)))) detectedBrand = 'TRAPSTAR';
+        else if (/burberry|burburry/i.test(lower) || (materials.length > 0 && materials.every(m => /burberry|burburry/i.test(m.name || m.brand)))) detectedBrand = 'BURBERRY';
         else if (/zara/i.test(lower) || (materials.length > 0 && materials.length <= 3 && materials.every(m => /zara/i.test(m.name || m.brand)))) detectedBrand = 'ZARA';
         else if (/nike/i.test(lower) || (materials.length > 0 && materials.length <= 3 && materials.every(m => /nike/i.test(m.name || m.brand)))) detectedBrand = 'NIKE';
-        else if (/tommy/i.test(lower) || materials.every(m => /tommy/i.test(m.name || m.brand))) detectedBrand = 'TOMMY';
-        else if (/bonkers/i.test(lower) || materials.every(m => /bonkers/i.test(m.name || m.brand))) detectedBrand = 'BONKERS';
-        else if (/stussy/i.test(lower) || materials.every(m => /stussy/i.test(m.name || m.brand))) detectedBrand = 'STUSSY';
-        else if (/diesel/i.test(lower) || materials.every(m => /diesel/i.test(m.name || m.brand))) detectedBrand = 'DIESEL';
+        else if (/tommy/i.test(lower) || (materials.length > 0 && materials.every(m => /tommy/i.test(m.name || m.brand)))) detectedBrand = 'TOMMY';
+        else if (/bonkers/i.test(lower) || (materials.length > 0 && materials.every(m => /bonkers/i.test(m.name || m.brand)))) detectedBrand = 'BONKERS';
+        else if (/stussy/i.test(lower) || (materials.length > 0 && materials.every(m => /stussy/i.test(m.name || m.brand)))) detectedBrand = 'STUSSY';
+        else if (/diesel/i.test(lower) || (materials.length > 0 && materials.every(m => /diesel/i.test(m.name || m.brand)))) detectedBrand = 'DIESEL';
+        else if (/gant/i.test(lower) || (materials.length > 0 && materials.every(m => /gant/i.test(m.name || m.brand)))) detectedBrand = 'GANT';
 
         let catPrefix = isLabelCat ? 'LABELS' : (isTagCat ? 'TAGS' : (isButtonCat ? 'BUTTONS' : (isPatchCat ? 'PATCHES' : (isPolybagCat ? polyTitle : (isStopperCat && isDoriCat ? 'STOPPER & DORI' : (isStopperCat ? 'STOPPER' : (isDoriCat ? 'DORI' : (isTapeCat ? 'TAPE' : (isBoneCat ? 'BONE' : (isElasticCat ? 'ELASTIC' : ''))))))))));
         cleanTitle = detectedBrand ? (catPrefix ? `${detectedBrand} ${catPrefix}` : detectedBrand) : (catPrefix || materials[0]?.category || materials[0]?.brand || materials[0]?.name || p);

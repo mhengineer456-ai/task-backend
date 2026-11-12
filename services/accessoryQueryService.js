@@ -65,7 +65,8 @@ export const BRAND_SYNONYMS = {
   amiri: ['amiri', 'ameeri'],
   myshelter: ['myshelter', 'my shelter', 'shelter'],
   washcare: ['washcare', 'wash care', 'wash-care'],
-  flower: ['flower', 'flor']
+  flower: ['flower', 'flor'],
+  gant: ['gant', 'gaant', 'gnt']
 };
 
 /**
@@ -517,6 +518,7 @@ export async function searchAccessoryMaterialsSmart(queryStr, options = {}) {
 
   // Extract non-category keywords (to check if a specific brand/item is requested, e.g. "amiri tag" vs "total tag")
   const stopWords = new Set([
+    'is', 'iss', 'in', 'ye', 'yeh', 'yehi', 'wo', 'woh', 'un', 'iska', 'iski', 'iske', 'unka', 'unki', 'unke', 'inka', 'inki', 'inke', 'kaun', 'kaunsa', 'kaunsi', 'kaunse',
     'k', 'ke', 'ka', 'ki', 'ko', 'me', 'mein', 'mre', 'mere', 'mera', 'meri', 'mra', 'merko', 'mereko', 'mujhe', 'mujhko',
     'pass', 'paas', 'pas', 'hamare', 'humare', 'hamara', 'humara', 'hamari', 'humari', 'hume', 'humko', 'apne', 'apna', 'apni',
     'kitna', 'kitne', 'kitni', 'pda', 'pada', 'pde', 'pade', 'pdi', 'padi', 'padaa', 'pdaa', 'bacha', 'bache', 'bachi', 'rakha', 'rakhe', 'rakhi',
