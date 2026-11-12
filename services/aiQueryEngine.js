@@ -2126,9 +2126,27 @@ export async function processUniversalQuery(prompt, context = {}) {
           Boolean(ocr.brand && /\b(stock|kitna|rack|godown|kahan|dikhao|batao|kya\s*hai)\b/i.test(p));
 
         if (isAccessoryInquiry) {
+          const isLabelQuery = /\b(labels?)\b/i.test(p) || /\b(labels?)\b/i.test(String(ocr.item || ocr.accessoryType || ''));
+          const isTagQuery = /\b(tags?)\b/i.test(p) || /\b(tags?)\b/i.test(String(ocr.item || ocr.accessoryType || ''));
+          const isPatchQuery = /\b(patch(?:es)?)\b/i.test(p) || /\b(patch(?:es)?)\b/i.test(String(ocr.item || ocr.accessoryType || ''));
+          const isButtonQuery = /\b(buttons?)\b/i.test(p) || /\b(buttons?)\b/i.test(String(ocr.item || ocr.accessoryType || ''));
+          const isDoriQuery = /\b(dori|doori)\b/i.test(p) || /\b(dori|doori)\b/i.test(String(ocr.item || ocr.accessoryType || ''));
+          const isStopperQuery = /\b(stoppers?)\b/i.test(p) || /\b(stoppers?)\b/i.test(String(ocr.item || ocr.accessoryType || ''));
+          const isPolybagQuery = /\b(poly\s*begs?|poly\s*bags?|polybegs?|polybags?|polbegs?|polbags?|lifaf(?:a|e|aa)?)\b/i.test(p) || /\b(poly\s*begs?|poly\s*bags?|polybegs?|polybags?)\b/i.test(String(ocr.item || ocr.accessoryType || ''));
+          const isZipQuery = /\b(zip|zipper|chain)\b/i.test(p) || /\b(zip|zipper)\b/i.test(String(ocr.item || ocr.accessoryType || ''));
+
           const candidateTerms = [];
           if (ocr.brand && ocr.brand.trim()) {
-            candidateTerms.push(ocr.brand.trim());
+            const b = ocr.brand.trim();
+            if (isLabelQuery) candidateTerms.push(`${b} label`);
+            else if (isTagQuery) candidateTerms.push(`${b} tag`);
+            else if (isPatchQuery) candidateTerms.push(`${b} patch`);
+            else if (isButtonQuery) candidateTerms.push(`${b} button`);
+            else if (isDoriQuery) candidateTerms.push(`${b} dori`);
+            else if (isStopperQuery) candidateTerms.push(`${b} stopper`);
+            else if (isPolybagQuery) candidateTerms.push(`${b} polybeg`);
+            else if (isZipQuery) candidateTerms.push(`${b} zip`);
+            candidateTerms.push(b);
           }
           if (ocr.printedText && ocr.printedText.trim() && !candidateTerms.includes(ocr.printedText.trim())) {
             candidateTerms.push(ocr.printedText.trim());
@@ -2177,26 +2195,61 @@ export async function processUniversalQuery(prompt, context = {}) {
           }
 
           if (matchedMaterials && matchedMaterials.length > 0) {
-            const isLabelQuery = /\b(labels?)\b/i.test(p) || /\b(labels?)\b/i.test(String(ocr.item || ocr.accessoryType || ''));
-            const isTagQuery = /\b(tags?)\b/i.test(p) || /\b(tags?)\b/i.test(String(ocr.item || ocr.accessoryType || ''));
-
             let displayItems = matchedMaterials;
+            let otherCatItems = [];
+
             if (isLabelQuery) {
               const labelOnly = matchedMaterials.filter(m => /label/i.test(m.category || m.name));
               if (labelOnly.length > 0) {
-                const otherItems = matchedMaterials.filter(m => !/label/i.test(m.category || m.name));
-                displayItems = [...labelOnly, ...otherItems];
+                otherCatItems = matchedMaterials.filter(m => !/label/i.test(m.category || m.name));
+                displayItems = labelOnly;
               }
             } else if (isTagQuery) {
               const tagOnly = matchedMaterials.filter(m => /tag/i.test(m.category || m.name));
               if (tagOnly.length > 0) {
-                const otherItems = matchedMaterials.filter(m => !/tag/i.test(m.category || m.name));
-                displayItems = [...tagOnly, ...otherItems];
+                otherCatItems = matchedMaterials.filter(m => !/tag/i.test(m.category || m.name));
+                displayItems = tagOnly;
+              }
+            } else if (isPatchQuery) {
+              const patchOnly = matchedMaterials.filter(m => /patch/i.test(m.category || m.name));
+              if (patchOnly.length > 0) {
+                otherCatItems = matchedMaterials.filter(m => !/patch/i.test(m.category || m.name));
+                displayItems = patchOnly;
+              }
+            } else if (isButtonQuery) {
+              const buttonOnly = matchedMaterials.filter(m => /button/i.test(m.category || m.name));
+              if (buttonOnly.length > 0) {
+                otherCatItems = matchedMaterials.filter(m => !/button/i.test(m.category || m.name));
+                displayItems = buttonOnly;
+              }
+            } else if (isDoriQuery) {
+              const doriOnly = matchedMaterials.filter(m => /dori|doori|cord|drawstring/i.test(m.category || m.name));
+              if (doriOnly.length > 0) {
+                otherCatItems = matchedMaterials.filter(m => !/dori|doori|cord|drawstring/i.test(m.category || m.name));
+                displayItems = doriOnly;
+              }
+            } else if (isStopperQuery) {
+              const stopperOnly = matchedMaterials.filter(m => /stopper/i.test(m.category || m.name));
+              if (stopperOnly.length > 0) {
+                otherCatItems = matchedMaterials.filter(m => !/stopper/i.test(m.category || m.name));
+                displayItems = stopperOnly;
+              }
+            } else if (isPolybagQuery) {
+              const polyOnly = matchedMaterials.filter(m => /poly\s*beg|poly\s*bag|polbeg|beg|lifafa/i.test(m.category || m.name));
+              if (polyOnly.length > 0) {
+                otherCatItems = matchedMaterials.filter(m => !/poly\s*beg|poly\s*bag|polbeg|beg|lifafa/i.test(m.category || m.name));
+                displayItems = polyOnly;
+              }
+            } else if (isZipQuery) {
+              const zipOnly = matchedMaterials.filter(m => /zip/i.test(m.category || m.name));
+              if (zipOnly.length > 0) {
+                otherCatItems = matchedMaterials.filter(m => !/zip/i.test(m.category || m.name));
+                displayItems = zipOnly;
               }
             }
 
             const primaryBrand = ocr.brand || displayItems[0]?.brand || matchedTerm || displayItems[0]?.name || 'Accessory';
-            const primaryCat = isLabelQuery ? 'LABELS' : (isTagQuery ? 'TAGS' : (displayItems[0]?.category || 'ACCESSORIES'));
+            const primaryCat = isLabelQuery ? 'LABELS' : (isTagQuery ? 'TAGS' : (isPatchQuery ? 'PATCHES' : (isButtonQuery ? 'BUTTONS' : (isDoriQuery ? 'DORI' : (isStopperQuery ? 'STOPPERS' : (isPolybagQuery ? 'POLYBEG' : (isZipQuery ? 'ZIPPERS' : (displayItems[0]?.category || 'ACCESSORIES'))))))));
             const displayTitle = `${primaryBrand.toUpperCase()} ${primaryCat.toUpperCase()}`.trim();
 
             const totalStockSum = displayItems.reduce((acc, m) => acc + (Number(m.stock) || 0), 0);
@@ -2236,9 +2289,16 @@ export async function processUniversalQuery(prompt, context = {}) {
 
             const locationsList = Array.from(new Set(displayItems.map(m => m.location).filter(Boolean))).join(', ') || 'Main Store';
             let headerText = `Aapki uploaded photo se brand **"${primaryBrand.toUpperCase()}"** detect hua hai.\n\n` +
-              `Factory Suite Pro accessory database ke live records ke anusar, aapke paas **Grand Total ${Number(totalStockSum).toLocaleString()} units** (${totalPacketsSum > 0 ? `${Number(totalPacketsSum).toLocaleString()} Packets` : `${displayItems.length} items`}) ka verified stock available hai, jo ki **${locationsList}** par rakha gaya hai:`;
+              `Factory Suite Pro accessory database ke live records ke anusar, aapke paas **${displayTitle}** ka **Grand Total ${Number(totalStockSum).toLocaleString()} units** (${totalPacketsSum > 0 ? `${Number(totalPacketsSum).toLocaleString()} Packets` : `${displayItems.length} items`}) verified stock available hai, jo ki **${locationsList}** par rakha gaya hai:`;
 
-            const fullAnswer = `${headerText}\n\n${cardMd}`;
+            let otherNote = '';
+            if (otherCatItems.length > 0) {
+              const otherTotal = otherCatItems.reduce((acc, m) => acc + (Number(m.stock) || 0), 0);
+              const otherSummary = otherCatItems.map(m => `**${m.name}** (${m.category}): **${Number(m.stock).toLocaleString()} ${m.unit || 'Pcs'}** in *${m.location || 'Godown'}*`).join(', ');
+              otherNote = `\n\n💡 **Note:** Factory database mein ${primaryBrand.toUpperCase()} brand ke **${otherCatItems[0]?.category || 'other trims'}** ka alag stock **${Number(otherTotal).toLocaleString()} units** (${otherSummary}) par available hai.`;
+            }
+
+            const fullAnswer = `${headerText}\n\n${cardMd}${otherNote}`;
 
             const pdfAttachment = {
               type: 'accessory-stock',
@@ -2951,6 +3011,30 @@ Directives:
         const isPolybagCat = /\b(poly\s*begs?|poly\s*bags?|polybegs?|polybags?|polbegs?|polbags?|lifaf(?:a|e|aa)?|packing\s*(?:beg|bag)s?|begs?)\b/i.test(lower);
         const polySizeMatch = isPolybagCat ? lower.match(/\b(\d{1,2}(?:\.\d+)?)\s*(?:\/|\s*x\s*|-|\s+)\s*(\d{1,2}(?:\.\d+)?)\b/) : null;
         const polyTitle = polySizeMatch ? `POLYBEG ${polySizeMatch[1]}/${polySizeMatch[2]}` : 'POLYBEG';
+
+        // Strictly isolate category if user specifically asked for one
+        if (isLabelCat) {
+          const lOnly = materials.filter(m => /label/i.test(m.category || m.name));
+          if (lOnly.length > 0) materials = lOnly;
+        } else if (isTagCat) {
+          const tOnly = materials.filter(m => /tag/i.test(m.category || m.name));
+          if (tOnly.length > 0) materials = tOnly;
+        } else if (isButtonCat) {
+          const bOnly = materials.filter(m => /button/i.test(m.category || m.name));
+          if (bOnly.length > 0) materials = bOnly;
+        } else if (isPatchCat) {
+          const pOnly = materials.filter(m => /patch/i.test(m.category || m.name));
+          if (pOnly.length > 0) materials = pOnly;
+        } else if (isDoriCat) {
+          const dOnly = materials.filter(m => /dori|doori|cord|drawstring/i.test(m.category || m.name));
+          if (dOnly.length > 0) materials = dOnly;
+        } else if (isStopperCat) {
+          const sOnly = materials.filter(m => /stopper/i.test(m.category || m.name));
+          if (sOnly.length > 0) materials = sOnly;
+        } else if (isPolybagCat) {
+          const pbOnly = materials.filter(m => /poly\s*beg|poly\s*bag|polbeg|beg|lifafa/i.test(m.category || m.name));
+          if (pbOnly.length > 0) materials = pbOnly;
+        }
 
         let detectedBrand = null;
         if (/addidas|adidas/i.test(lower) || (materials.length > 0 && materials.every(m => /addidas|adidas/i.test(m.name || m.brand)))) detectedBrand = 'ADIDAS';
