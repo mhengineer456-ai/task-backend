@@ -1037,7 +1037,8 @@ export function formatIssueLogsToMarkdown(logs, title = '') {
   }
 
   let md = `### 📋 Verified Accessory Issuance History (Table: issue_logs)\n\n`;
-  md += `* 📦 **Total Issuance Records Found:** **${logs.length} entries**\n\n`;
+  md += `* 📦 **Total Issuance Records Found:** **${logs.length} entries**\n`;
+  md += `* 📄 **Official PDF Export:** [📥 Download ${title || 'Accessory'} Issue Logs Report (PDF)](/api/chat/pdf/accessory-issue-logs?search=${encodeURIComponent(title || '')})\n\n`;
   md += `| # | Lot Number | Material & Qty | Issued To | Issued By | Issue Date |\n`;
   md += `| :--- | :--- | :--- | :--- | :--- | :--- |\n`;
 

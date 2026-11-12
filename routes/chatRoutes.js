@@ -14,6 +14,7 @@ import {
   generateLotPdf,
   generatePartyPdf,
   generateAccessoryStockPdfController,
+  generateAccessoryIssueLogsPdfController,
   generateCutLotsBarcodePdfController,
   generateUncutLotsPdfController,
   proxyImage,
@@ -49,6 +50,8 @@ router.get('/pdf/cut-lots-barcode-pending', generateCutLotsBarcodePdfController)
 router.get('/pdf/uncut-lots-pending', generateUncutLotsPdfController);
 router.get('/pdf/accessory-stock', generateAccessoryStockPdfController);
 router.post('/pdf/accessory-stock', generateAccessoryStockPdfController);
+router.get('/pdf/accessory-issue-logs', generateAccessoryIssueLogsPdfController);
+router.post('/pdf/accessory-issue-logs', generateAccessoryIssueLogsPdfController);
 router.get('/pdf/party/:partyName', generatePartyPdf);
 router.get('/pdf/:lotNumber', generateLotPdf);
 

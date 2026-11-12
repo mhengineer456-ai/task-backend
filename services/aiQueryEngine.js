@@ -2185,7 +2185,13 @@ export async function processUniversalQuery(prompt, context = {}) {
 
               return {
                 handled: true,
-                answer
+                answer,
+                pdfAttachment: {
+                  type: 'accessory-issue-logs',
+                  downloadUrl: `/api/chat/pdf/accessory-issue-logs?search=${encodeURIComponent(`${displayBrand} ${displayCat}`.trim())}&brand=${encodeURIComponent(detectedBrand || displayBrand)}`,
+                  filename: `Accessory_Issue_Logs_${displayBrand}_Report.pdf`,
+                  title: `Accessory Issuance History (${displayBrand} ${displayCat})`
+                }
               };
             } else {
               let emptyAnswer = `### 📋 Accessory Issuance History: **${displayBrand} ${displayCat}**\n\n` +
@@ -2801,10 +2807,10 @@ DIRECTIVES:
         ...(imageAttachment ? { imageAttachment } : {}),
         ...(imageGallery ? { imageGallery } : {}),
         pdfAttachment: {
-          type: 'accessory-stock',
-          downloadUrl: `http://localhost:5000/api/chat/pdf/accessory-stock`,
-          filename: `Accessory_Stock_Report_With_Photos.pdf`,
-          title: `Accessory & Trims Stock Inventory (With Photos)`
+          type: 'accessory-issue-logs',
+          downloadUrl: `/api/chat/pdf/accessory-issue-logs?search=${encodeURIComponent(brandWord || targetLotNo || p)}`,
+          filename: `Accessory_Issue_Logs_${(brandWord || targetLotNo || 'Report').toUpperCase()}_Report.pdf`,
+          title: `Accessory Issuance History (${brandWord || targetLotNo || 'Report'})`
         }
       };
     }

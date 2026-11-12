@@ -933,3 +933,214 @@ export async function generateAccessoryStockPdf(options = {}, outputStream) {
   drawPageFooter();
   doc.end();
 }
+
+/**
+ * Generates an executive monochrome/high-contrast PDF report for Accessory Issue Logs (issuance history).
+ * 
+ * @param {Object} reportData - { title, brand, category, lotId, issueLogs }
+ * @param {WritableStream} outputStream - Stream to pipe generated PDF to
+ */
+export function generateAccessoryIssueLogsPdf(reportData = {}, outputStream) {
+  const doc = new PDFDocument({
+    size: 'A4',
+    margin: 36,
+    info: {
+      Title: 'Accessory_Issue_Logs_Report',
+      Author: 'Factory Suite Pro',
+      Subject: 'Accessory & Material Issuance Audit Report'
+    }
+  });
+
+  doc.pipe(outputStream);
+
+  const black = '#000000';
+  const sanitize = (val) => {
+    if (!val) return '';
+    return String(val).replace(/[^\x20-\x7E]/g, '').trim();
+  };
+
+  const logs = Array.isArray(reportData.issueLogs) ? reportData.issueLogs : [];
+  const targetLabel = sanitize(reportData.brand || reportData.category || reportData.lotId || reportData.title || 'ALL ACCESSORIES').toUpperCase();
+
+  // Calculate summary metrics
+  const distinctLots = [...new Set(logs.map(l => l.lotId).filter(Boolean))];
+  let totalIssuedQty = 0;
+  logs.forEach(l => {
+    if (Array.isArray(l.parsedMaterials)) {
+      l.parsedMaterials.forEach(m => {
+        const q = Number(m.qty);
+        if (!isNaN(q) && q > 0) totalIssuedQty += q;
+      });
+    }
+  });
+
+  let pageNum = 1;
+
+  const drawPageHeader = () => {
+    // Header box (x=36, y=36, width=523, height=58)
+    doc.rect(36, 36, 523, 58).lineWidth(1.5).stroke(black);
+
+    // Left Title Section
+    doc.fillColor(black).fontSize(14).font('Helvetica-Bold').text('FACTORY SUITE PRO', 46, 45);
+    doc.fillColor(black).fontSize(7).font('Helvetica').text('ACCESSORY & MATERIAL MANAGEMENT MODULE • LIVE SQL DATABASE AUDIT', 46, 62);
+    doc.fillColor(black).fontSize(8.5).font('Helvetica-Bold').text(
+      `ACCESSORY & TRIMS ISSUANCE AUDIT REPORT: ${targetLabel.slice(0, 42)}`, 46, 73
+    );
+
+    // Vertical Divider
+    doc.moveTo(395, 36).lineTo(395, 94).lineWidth(1).stroke(black);
+
+    // Right Reference Section
+    doc.fillColor(black).fontSize(7).font('Helvetica-Bold').text('AUDIT REFERENCE', 405, 43);
+    doc.fillColor(black).fontSize(9.5).font('Helvetica-Bold').text('ISSUE LOGS AUDIT', 405, 53);
+    const now = new Date();
+    const dateStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    doc.fillColor(black).fontSize(7).font('Helvetica').text(`Generated: ${dateStr}`, 405, 68);
+    doc.fillColor(black).fontSize(6.5).font('Helvetica').text('PRINT-OPTIMIZED INDUSTRIAL REPORT', 405, 79);
+  };
+
+  const drawFooter = () => {
+    doc.fillColor(black).fontSize(7).font('Helvetica').text(
+      `Factory Suite Pro • Verified Accessory Issuance History • Page ${pageNum} • Live Database Audit (railway.issue_logs)`,
+      36, 802, { align: 'center', width: 523 }
+    );
+  };
+
+  // Draw Page 1 Header
+  drawPageHeader();
+
+  let currentY = 102;
+
+  // --- KPI SUMMARY CARDS ---
+  const cardW = 168;
+  const cardH = 34;
+
+  // Box 1: Total Entries
+  doc.rect(36, currentY, cardW, cardH).lineWidth(1).stroke(black);
+  doc.fillColor(black).fontSize(7).font('Helvetica-Bold').text('TOTAL ISSUANCE RECORDS', 44, currentY + 6);
+  doc.fillColor(black).fontSize(12).font('Helvetica-Bold').text(`${logs.length} Entries`, 44, currentY + 17);
+
+  // Box 2: Distinct Lots
+  doc.rect(213, currentY, cardW, cardH).lineWidth(1).stroke(black);
+  doc.fillColor(black).fontSize(7).font('Helvetica-Bold').text('DISTINCT LOTS ISSUED', 221, currentY + 6);
+  doc.fillColor(black).fontSize(12).font('Helvetica-Bold').text(`${distinctLots.length} Lots`, 221, currentY + 17);
+
+  // Box 3: Total Quantity or Verified Status
+  doc.rect(391, currentY, cardW, cardH).lineWidth(1).stroke(black);
+  doc.fillColor(black).fontSize(7).font('Helvetica-Bold').text('TOTAL QUANTITY ISSUED', 399, currentY + 6);
+  doc.fillColor(black).fontSize(12).font('Helvetica-Bold').text(
+    totalIssuedQty > 0 ? `${totalIssuedQty.toLocaleString()} Pcs` : '[✓] Verified Audit',
+    399, currentY + 17
+  );
+
+  currentY += 44;
+
+  // --- TABULAR GRID ---
+  // Total width: 523 (x=36 to 559)
+  const colX = {
+    idx: 40,
+    lot: 65,
+    mat: 122,
+    to: 318,
+    by: 422,
+    date: 486
+  };
+
+  const drawTableHeader = (y) => {
+    doc.rect(36, y, 523, 19).lineWidth(1.2).stroke(black);
+
+    // Dividers
+    doc.moveTo(60, y).lineTo(60, y + 19).lineWidth(0.5).stroke(black);
+    doc.moveTo(118, y).lineTo(118, y + 19).lineWidth(0.5).stroke(black);
+    doc.moveTo(314, y).lineTo(314, y + 19).lineWidth(0.5).stroke(black);
+    doc.moveTo(418, y).lineTo(418, y + 19).lineWidth(0.5).stroke(black);
+    doc.moveTo(482, y).lineTo(482, y + 19).lineWidth(0.5).stroke(black);
+
+    doc.fillColor(black).fontSize(7.5).font('Helvetica-Bold');
+    doc.text('#', colX.idx, y + 5);
+    doc.text('LOT #', colX.lot, y + 5);
+    doc.text('MATERIAL & QUANTITY', colX.mat, y + 5);
+    doc.text('ISSUED TO (DEPT)', colX.to, y + 5);
+    doc.text('ISSUED BY', colX.by, y + 5);
+    doc.text('DATE / TIME', colX.date, y + 5);
+  };
+
+  drawTableHeader(currentY);
+  currentY += 19;
+
+  if (logs.length === 0) {
+    doc.rect(36, currentY, 523, 30).lineWidth(0.5).stroke(black);
+    doc.fillColor(black).fontSize(8.5).font('Helvetica').text(
+      'No material issuance records found matching the specified parameters.',
+      44, currentY + 10
+    );
+    currentY += 30;
+  } else {
+    logs.forEach((l, idx) => {
+      if (currentY > 770) {
+        drawFooter();
+        doc.addPage();
+        pageNum++;
+        drawPageHeader();
+        currentY = 106;
+        drawTableHeader(currentY);
+        currentY += 19;
+      }
+
+      // Format materials text
+      let matsStr = '';
+      if (Array.isArray(l.parsedMaterials) && l.parsedMaterials.length > 0) {
+        matsStr = l.parsedMaterials.map(m => {
+          const n = sanitize(m.name || m.materialName || 'Item');
+          const t = m.bomItemName ? ` (${sanitize(m.bomItemName)})` : '';
+          const q = (m.qty !== undefined && m.qty !== null) ? `: ${m.qty} ${sanitize(m.unit || 'Pcs')}` : '';
+          return `${n}${t}${q}`;
+        }).join(', ');
+      } else if (typeof l.materials === 'string' && l.materials.trim()) {
+        try {
+          const parsed = JSON.parse(l.materials);
+          if (Array.isArray(parsed)) {
+            matsStr = parsed.map(m => {
+              const n = sanitize(m.name || m.materialName || 'Item');
+              const t = m.bomItemName ? ` (${sanitize(m.bomItemName)})` : '';
+              const q = (m.qty !== undefined && m.qty !== null) ? `: ${m.qty} ${sanitize(m.unit || 'Pcs')}` : '';
+              return `${n}${t}${q}`;
+            }).join(', ');
+          } else {
+            matsStr = sanitize(l.materials);
+          }
+        } catch (e) {
+          matsStr = sanitize(l.materials);
+        }
+      }
+      if (!matsStr) matsStr = '-';
+
+      const receiverStr = sanitize(l.receiverName ? `${l.receiverName}${l.receiverDept ? ` (${l.receiverDept})` : ''}` : (l.receiverDept || 'Floor'));
+      const personStr = sanitize(l.personName || 'Floor');
+      const dateStr = sanitize(l.date || '-');
+      const lotStr = sanitize(l.lotId ? `Lot ${l.lotId}` : '-');
+
+      const rowHeight = 18;
+
+      doc.rect(36, currentY, 523, rowHeight).lineWidth(0.5).stroke(black);
+
+      doc.moveTo(60, currentY).lineTo(60, currentY + rowHeight).lineWidth(0.5).stroke(black);
+      doc.moveTo(118, currentY).lineTo(118, currentY + rowHeight).lineWidth(0.5).stroke(black);
+      doc.moveTo(314, currentY).lineTo(314, currentY + rowHeight).lineWidth(0.5).stroke(black);
+      doc.moveTo(418, currentY).lineTo(418, currentY + rowHeight).lineWidth(0.5).stroke(black);
+      doc.moveTo(482, currentY).lineTo(482, currentY + rowHeight).lineWidth(0.5).stroke(black);
+
+      doc.fillColor(black).fontSize(7).font('Helvetica').text(String(idx + 1), colX.idx, currentY + 5);
+      doc.fillColor(black).fontSize(7.5).font('Helvetica-Bold').text(lotStr, colX.lot, currentY + 5);
+      doc.fillColor(black).fontSize(7).font('Helvetica-Bold').text(matsStr, colX.mat, currentY + 5, { width: 190, height: 12, ellipsis: true });
+      doc.fillColor(black).fontSize(7).font('Helvetica').text(receiverStr, colX.to, currentY + 5, { width: 100, height: 12, ellipsis: true });
+      doc.fillColor(black).fontSize(7).font('Helvetica').text(personStr, colX.by, currentY + 5, { width: 60, height: 12, ellipsis: true });
+      doc.fillColor(black).fontSize(6.5).font('Helvetica').text(dateStr, colX.date, currentY + 5, { width: 72, height: 12, ellipsis: true });
+
+      currentY += rowHeight;
+    });
+  }
+
+  drawFooter();
+  doc.end();
+}

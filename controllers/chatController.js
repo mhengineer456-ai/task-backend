@@ -15,7 +15,7 @@ import {
   broadcastChannelDeleted
 } from '../socket.js';
 import { logService } from '../services/logService.js';
-import { generateJobOrderPdf, generatePartyReportPdf, generateAccessoryStockPdf, generateCutLotsBarcodePdf, generateUncutLotsPdf } from '../services/pdfService.js';
+import { generateJobOrderPdf, generatePartyReportPdf, generateAccessoryStockPdf, generateCutLotsBarcodePdf, generateUncutLotsPdf, generateAccessoryIssueLogsPdf } from '../services/pdfService.js';
 import { processUniversalQuery, loadFactorySheetsData } from '../services/aiQueryEngine.js';
 import { buildAiAggregatedContext } from '../services/aiContextAggregator.js';
 import { getAccessoryDbStatus, isAccessoryConnected, refreshAccessoryTableCounts } from '../config/accessoryDb.js';
@@ -26,6 +26,7 @@ import {
   getWeightCaptureSummary,
   getRecentIssueLogs,
   getIssueLogsByLot,
+  searchIssueLogs,
   getMaterialsInventory,
   searchAccessoryMaterialsSmart,
   getAccessoryStorageOverview,
@@ -1804,6 +1805,58 @@ export const generateAccessoryStockPdfController = async (req, res) => {
     console.error('Error generating Accessory Stock PDF:', err);
     if (!res.headersSent) {
       res.status(500).json({ success: false, error: 'Failed to generate accessory stock PDF' });
+    }
+  }
+};
+
+export const generateAccessoryIssueLogsPdfController = async (req, res) => {
+  try {
+    let issueLogs = [];
+    const search = req.query.search || req.body?.search || '';
+    const brand = req.query.brand || req.body?.brand || '';
+    const lotId = req.query.lotId || req.body?.lotId || '';
+    const receiver = req.query.receiver || req.body?.receiver || '';
+    const category = req.query.category || req.body?.category || '';
+    const title = req.body?.title || req.query?.title || '';
+
+    // 1. If issueLogs provided directly in request body (e.g. from frontend table)
+    if (Array.isArray(req.body?.issueLogs) && req.body.issueLogs.length > 0) {
+      issueLogs = req.body.issueLogs;
+    } else {
+      // 2. Query live database for issue logs
+      try {
+        const queryTerm = search || brand || lotId || receiver || '';
+        if (lotId) {
+          issueLogs = await getIssueLogsByLot(lotId);
+        } else if (queryTerm) {
+          issueLogs = await searchIssueLogs(queryTerm, { brand, category, receiver, limit: 150 });
+        }
+        if (!issueLogs || issueLogs.length === 0) {
+          issueLogs = await getRecentIssueLogs(60);
+        }
+      } catch (dbErr) {
+        console.warn('[PDF Controller] Error querying issue logs for PDF:', dbErr.message);
+      }
+    }
+
+    const safeTarget = (brand || search || category || (lotId ? `Lot_${lotId}` : 'Audit')).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `Accessory_Issue_Logs_${safeTarget || 'Report'}.pdf`;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    generateAccessoryIssueLogsPdf({
+      issueLogs,
+      title: title || (brand ? `Accessory Issuance History: ${brand.toUpperCase()}` : 'Accessory & Material Issuance Audit Report'),
+      brand: brand || search,
+      category,
+      lotId,
+      user: req.user?.name || 'Authorized Supervisor'
+    }, res);
+  } catch (err) {
+    console.error('Error generating Accessory Issue Logs PDF:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: 'Failed to generate accessory issue logs PDF' });
     }
   }
 };
